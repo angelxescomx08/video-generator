@@ -52,7 +52,9 @@ services:
     volumes:
       - ./apps/worker:/app/apps/worker
       - render-data:/app/data/renders
-    command: pnpm --filter worker dev
+    # env_file already injects real env vars into the container, so we bypass the package.json
+    # "dev" script's dotenv-cli wrapper (which expects a local .env file that isn't copied here).
+    command: npx tsx watch src/index.ts
 
   web:
     build:
@@ -63,7 +65,8 @@ services:
       - "3000:3000"
     depends_on:
       - postgres
-    command: pnpm --filter web dev
+    # see the note on the worker service above re: bypassing the dotenv-cli wrapper here too.
+    command: npx next dev
 
 volumes:
   pgdata:

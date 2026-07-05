@@ -6,7 +6,7 @@ import {
   videoMemory,
   type FactType,
 } from "@video-generator/db";
-import { cosineDistance, desc, eq, and, sql } from "drizzle-orm";
+import { cosineDistance, desc, eq, and, inArray, sql } from "drizzle-orm";
 import type { FeedbackSummary, MemoryContextItem } from "@video-generator/ai-providers";
 
 /** Top-k semantically similar past scripts/feedback/style-notes for this theme (RAG-lite recall). */
@@ -45,7 +45,7 @@ export async function getAvoidFacts(themeId: string, factTypes: FactType[]): Pro
   const rows = await db
     .select({ factValue: generationHistory.factValue })
     .from(generationHistory)
-    .where(and(eq(generationHistory.themeId, themeId), sql`${generationHistory.factType} = ANY(${factTypes})`));
+    .where(and(eq(generationHistory.themeId, themeId), inArray(generationHistory.factType, factTypes)));
   return rows.map((r) => r.factValue);
 }
 

@@ -1,4 +1,5 @@
 import PgBoss from "pg-boss";
+import { QUEUES } from "./queues";
 
 let bossInstance: PgBoss | null = null;
 
@@ -20,6 +21,12 @@ export async function getBoss(): Promise<PgBoss> {
   boss.on("error", (error) => console.error("pg-boss error:", error));
 
   await boss.start();
+
+  // pg-boss requires queues to exist before send()/work()/schedule() will accept them.
+  for (const queueName of Object.values(QUEUES)) {
+    await boss.createQueue(queueName);
+  }
+
   bossInstance = boss;
   return boss;
 }
