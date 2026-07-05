@@ -1,0 +1,27 @@
+{
+  "name": "video-generator",
+  "private": true,
+  "packageManager": "pnpm@9.15.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm docker:up:deps && concurrently -n web,worker -c blue,green \"pnpm --filter web dev\" \"pnpm --filter worker dev\"",
+    "docker:up": "docker compose up -d",
+    "docker:up:deps": "docker compose up -d postgres ollama tts adminer",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "db:generate": "pnpm --filter @video-generator/db db:generate",
+    "db:migrate": "pnpm --filter @video-generator/db db:migrate",
+    "db:studio": "pnpm --filter @video-generator/db db:studio",
+    "db:seed": "pnpm --filter @video-generator/db db:seed",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  }
+}

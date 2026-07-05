@@ -1,0 +1,30 @@
+{
+  "name": "worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@video-generator/ai-providers": "workspace:*",
+    "@video-generator/config": "workspace:*",
+    "@video-generator/db": "workspace:*",
+    "@video-generator/queue": "workspace:*",
+    "@video-generator/social-providers": "workspace:*",
+    "@video-generator/stock-providers": "workspace:*",
+    "@video-generator/tts-providers": "workspace:*",
+    "@video-generator/types": "workspace:*",
+    "drizzle-orm": "^0.36.4",
+    "fluent-ffmpeg": "^2.1.3",
+    "pg-boss": "^10.1.5"
+  },
+  "devDependencies": {
+    "@types/fluent-ffmpeg": "^2.1.27",
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
