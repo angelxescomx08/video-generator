@@ -1,4 +1,5 @@
 import { editDecisionListSchema, type EditDecisionList } from "@video-generator/types";
+import { VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
   AIProvider,
   EDLGenerationRequest,
@@ -41,7 +42,10 @@ export class GeminiProvider implements AIProvider {
   }
 
   async generateScript(req: ScriptGenerationRequest): Promise<ScriptGenerationResult> {
-    const userPrompt = `${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nDevuelve JSON con title, description, script, scenes[], tags[], extractedFacts[].`;
+    const regenerationBlock = req.regenerationInstruction
+      ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
+      : "";
+    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nDevuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
     const raw = await this.generateJson(req.systemPrompt, userPrompt);
     return raw as ScriptGenerationResult;
   }

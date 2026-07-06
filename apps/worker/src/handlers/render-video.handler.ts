@@ -1,7 +1,7 @@
-import { db, videos } from "@video-generator/db";
+import { db, videoVersions, videos } from "@video-generator/db";
 import { videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
 import type { EditDecisionList } from "@video-generator/types";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import path from "node:path";
 import { buildFfmpegArgs } from "../ffmpeg/edl-to-ffmpeg";
 import { logFfmpegProgress, runFfmpeg } from "../ffmpeg/render";
@@ -22,7 +22,16 @@ export async function handleRenderVideo(payload: VideoJobPayload): Promise<void>
 
   await runStage(videoId, STAGES.render!, async () => {
     const workspace = await getJobWorkspace(videoId);
-    const outputPath = await getRenderOutputPath(videoId);
+
+    const [lastVersion] = await db
+      .select({ versionNumber: videoVersions.versionNumber })
+      .from(videoVersions)
+      .where(eq(videoVersions.videoId, videoId))
+      .orderBy(desc(videoVersions.versionNumber))
+      .limit(1);
+    const nextVersion = (lastVersion?.versionNumber ?? 0) + 1;
+
+    const outputPath = await getRenderOutputPath(videoId, nextVersion);
 
     let assFilePath: string | undefined;
     if (edl.captions.enabled) {
@@ -45,17 +54,36 @@ export async function handleRenderVideo(payload: VideoJobPayload): Promise<void>
     logger.info(`Starting ffmpeg render for video ${videoId}`);
     await runFfmpeg(args, logFfmpegProgress(videoId));
 
+    const durationSeconds = Math.round(edl.totalDurationSeconds);
+    const [version] = await db
+      .insert(videoVersions)
+      .values({
+        videoId,
+        versionNumber: nextVersion,
+        script: video.script,
+        scenes: video.scenes,
+        sceneAudio: video.sceneAudio,
+        sceneClips: video.sceneClips,
+        edl: video.edl,
+        renderOutputPath: outputPath,
+        durationSeconds,
+        triggeredByFeedbackId: video.pendingFeedbackId,
+      })
+      .returning({ id: videoVersions.id });
+
     await db
       .update(videos)
       .set({
         renderOutputPath: outputPath,
-        durationSeconds: Math.round(edl.totalDurationSeconds),
+        durationSeconds,
         status: "ready",
+        currentVersionId: version!.id,
+        pendingFeedbackId: null,
         updatedAt: new Date(),
       })
       .where(eq(videos.id, videoId));
 
-    logger.info(`Render complete for video ${videoId}`, { outputPath });
-    return { outputPath };
+    logger.info(`Render complete for video ${videoId}`, { outputPath, version: nextVersion });
+    return { outputPath, version: nextVersion };
   });
 }

@@ -1,4 +1,5 @@
 import { editDecisionListSchema, type EditDecisionList } from "@video-generator/types";
+import { VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
   AIProvider,
   EDLGenerationRequest,
@@ -22,7 +23,9 @@ Responde UNICAMENTE con JSON valido con esta forma exacta, sin texto adicional:
   "scenes": [{ "index": number, "narrationText": string, "estimatedDurationSeconds": number, "visualKeywords": string[], "captionText": string }],
   "tags": string[],
   "extractedFacts": [{ "factType": string, "factValue": string }]
-}`;
+}
+
+${VISUAL_KEYWORDS_INSTRUCTION}`;
 
 const EDL_JSON_INSTRUCTIONS = `
 Responde UNICAMENTE con JSON valido que sea una Edit Decision List con esta forma (version siempre 1):
@@ -78,8 +81,11 @@ export class OllamaProvider implements AIProvider {
     const feedbackBlock =
       req.recentFeedback.map((f) => `- rating=${f.rating ?? "N/A"} comentario="${f.comment ?? ""}"`).join("\n") ||
       "Ninguno";
+    const regenerationBlock = req.regenerationInstruction
+      ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
+      : "";
 
-    const userPrompt = `${req.userPromptTemplate}
+    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}
 
 Tema: ${req.themeSlug}
 Formato: ${req.format}

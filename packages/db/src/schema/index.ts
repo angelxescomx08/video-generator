@@ -1,5 +1,6 @@
 export * from "./themes";
 export * from "./videos";
+export * from "./video-versions";
 export * from "./generation-jobs";
 export * from "./video-memory";
 export * from "./generation-history";

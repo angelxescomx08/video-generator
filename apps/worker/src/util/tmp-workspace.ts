@@ -10,9 +10,10 @@ export async function getJobWorkspace(videoId: string): Promise<string> {
   return dir;
 }
 
-export async function getRenderOutputPath(videoId: string): Promise<string> {
+/** Cada version tiene su propio archivo bajo RENDER_OUTPUT_DIR/{videoId}/ para no pisar renders anteriores. */
+export async function getRenderOutputPath(videoId: string, versionNumber: number): Promise<string> {
   const env = loadEnv();
-  const dir = env.RENDER_OUTPUT_DIR;
+  const dir = path.join(env.RENDER_OUTPUT_DIR, videoId);
   await mkdir(dir, { recursive: true });
-  return path.join(dir, `${videoId}.mp4`);
+  return path.join(dir, `v${versionNumber}.mp4`);
 }

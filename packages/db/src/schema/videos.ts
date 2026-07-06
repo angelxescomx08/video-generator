@@ -38,6 +38,10 @@ export const videos = pgTable("videos", {
   durationSeconds: integer("duration_seconds"),
   errorMessage: text("error_message"),
   requestedBy: text("requested_by"),
+  /** Video actualmente activo en video_versions; sin FK para evitar el ciclo videos<->video_versions. */
+  currentVersionId: uuid("current_version_id"),
+  /** Feedback que disparo la regeneracion en curso; se limpia al completar el render. */
+  pendingFeedbackId: uuid("pending_feedback_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

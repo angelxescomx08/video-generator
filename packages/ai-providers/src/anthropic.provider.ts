@@ -1,5 +1,5 @@
 import { editDecisionListSchema, type EditDecisionList } from "@video-generator/types";
-import { NotImplementedError, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
+import { NotImplementedError, VISUAL_KEYWORDS_INSTRUCTION, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
 
 interface AnthropicProviderOptions {
   apiKey: string;
@@ -49,7 +49,10 @@ export class AnthropicProvider implements AIProvider {
   }
 
   async generateScript(req: ScriptGenerationRequest): Promise<ScriptGenerationResult> {
-    const userPrompt = `${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nDevuelve JSON con title, description, script, scenes[], tags[], extractedFacts[].`;
+    const regenerationBlock = req.regenerationInstruction
+      ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
+      : "";
+    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nDevuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
     const raw = await this.messageJson(req.systemPrompt, userPrompt);
     return raw as ScriptGenerationResult;
   }

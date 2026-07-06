@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { VideoStatusPanel } from "@/components/job-status-badge";
 import { FeedbackForm } from "@/components/feedback-form";
 import { PublishPanel } from "@/components/publish-panel";
+import { VideoVersionsPanel } from "@/components/video-versions-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,8 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
       </div>
 
       <VideoStatusPanel initialVideo={video} />
+
+      <VideoVersionsPanel videoId={video.id} />
 
       {video.status === "ready" && (
         <div className="space-y-2">

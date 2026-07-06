@@ -8,6 +8,13 @@
       "when": 1783281332939,
       "tag": "0000_regular_starbolt",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783295257376,
+      "tag": "0001_lean_phalanx",
+      "breakpoints": true
     }
   ]
 }

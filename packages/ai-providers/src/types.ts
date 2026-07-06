@@ -32,6 +32,8 @@ export interface ScriptGenerationRequest {
   memoryContext: MemoryContextItem[];
   avoidFacts: string[];
   recentFeedback: FeedbackSummary[];
+  /** Instruccion puntual del feedback que disparo esta regeneracion (p.ej. "hazlo mas largo") — se debe priorizar sobre el resto del contexto. */
+  regenerationInstruction?: string;
 }
 
 export interface ExtractedFact {
@@ -65,6 +67,13 @@ export class NotImplementedError extends Error {
     this.name = "NotImplementedError";
   }
 }
+
+/** Los bancos de stock (Pixabay/Pexels) indexan tags mayormente en ingles; sin esto el LLM
+ * devuelve visualKeywords en el idioma del guion y las busquedas de stock fallan seguido. */
+export const VISUAL_KEYWORDS_INSTRUCTION =
+  "Importante: aunque el guion este en español, el campo visualKeywords de cada escena debe estar" +
+  " en ingles, con 2-4 palabras simples y genericas (sustantivos concretos, no frases), ideales" +
+  " para buscar en bancos de video como Pixabay o Pexels.";
 
 export interface AIProvider {
   readonly name: string;

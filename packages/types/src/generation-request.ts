@@ -16,6 +16,11 @@ export const createFeedbackRequestSchema = z.object({
 });
 export type CreateFeedbackRequest = z.infer<typeof createFeedbackRequestSchema>;
 
+export const regenerateVideoRequestSchema = z.object({
+  feedbackId: z.string().uuid().optional(),
+});
+export type RegenerateVideoRequest = z.infer<typeof regenerateVideoRequestSchema>;
+
 export interface ScriptScene {
   index: number;
   narrationText: string;
