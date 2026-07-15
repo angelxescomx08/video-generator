@@ -5,6 +5,7 @@ import { VideoStatusPanel } from "@/components/job-status-badge";
 import { FeedbackForm } from "@/components/feedback-form";
 import { PublishPanel } from "@/components/publish-panel";
 import { VideoVersionsPanel } from "@/components/video-versions-panel";
+import { DeleteVideoButton } from "@/components/delete-video-button";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +18,12 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div className="max-w-2xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">{video.title ?? "Video sin titulo"}</h1>
-        <p className="text-sm text-muted-foreground">{video.format} - {video.topic ?? "sin topico especifico"}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">{video.title ?? "Video sin titulo"}</h1>
+          <p className="text-sm text-muted-foreground">{video.format} - {video.topic ?? "sin topico especifico"}</p>
+        </div>
+        <DeleteVideoButton videoId={video.id} />
       </div>
 
       <VideoStatusPanel initialVideo={video} />
