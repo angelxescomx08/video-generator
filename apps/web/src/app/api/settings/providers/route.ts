@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const setDefaultSchema = z.object({
-  providerType: z.enum(["ai", "tts", "stock", "social"]),
+  providerType: z.enum(["ai", "tts", "stock", "social", "music"]),
   providerName: z.string().min(1),
 });
 

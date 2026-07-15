@@ -1,6 +1,6 @@
 import { boolean, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-export const PROVIDER_TYPES = ["ai", "tts", "stock", "social"] as const;
+export const PROVIDER_TYPES = ["ai", "tts", "stock", "social", "music"] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 export const providerConfigs = pgTable("provider_configs", {

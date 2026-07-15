@@ -102,6 +102,9 @@ importers:
       '@video-generator/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@video-generator/music-providers':
+        specifier: workspace:*
+        version: link:../../packages/music-providers
       '@video-generator/queue':
         specifier: workspace:*
         version: link:../../packages/queue
@@ -202,6 +205,28 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.0
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/music-providers:
+    dependencies:
+      '@video-generator/config':
+        specifier: workspace:*
+        version: link:../config
+      '@video-generator/db':
+        specifier: workspace:*
+        version: link:../db
+      '@video-generator/types':
+        specifier: workspace:*
+        version: link:../types
+      drizzle-orm:
+        specifier: ^0.36.4
+        version: 0.36.4(@types/pg@8.20.0)(@types/react@18.3.31)(pg@8.22.0)(react@18.3.1)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.20.0
       typescript:
         specifier: ^5.6.3
         version: 5.9.3

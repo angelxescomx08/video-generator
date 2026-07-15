@@ -36,6 +36,8 @@ const envSchema = z.object({
   STORYBLOCKS_PRIVATE_KEY: z.string().optional(),
   STORYBLOCKS_PROJECT_ID: z.string().optional(),
 
+  JAMENDO_CLIENT_ID: z.string().optional(),
+
   YOUTUBE_CLIENT_ID: z.string().optional(),
   YOUTUBE_CLIENT_SECRET: z.string().optional(),
   YOUTUBE_REDIRECT_URI: z.string().optional(),

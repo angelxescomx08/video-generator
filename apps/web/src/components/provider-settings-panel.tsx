@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-const PROVIDER_OPTIONS: Record<"ai" | "tts" | "stock", { name: string; label: string; free: boolean }[]> = {
+const PROVIDER_OPTIONS: Record<"ai" | "tts" | "stock" | "music", { name: string; label: string; free: boolean }[]> = {
   ai: [
     { name: "ollama", label: "Ollama (local)", free: true },
     { name: "openai", label: "OpenAI", free: false },
@@ -23,12 +23,14 @@ const PROVIDER_OPTIONS: Record<"ai" | "tts" | "stock", { name: string; label: st
     { name: "shutterstock", label: "Shutterstock", free: false },
     { name: "storyblocks", label: "Storyblocks", free: false },
   ],
+  music: [{ name: "jamendo", label: "Jamendo (Creative Commons)", free: true }],
 };
 
 const SECTION_TITLES: Record<keyof typeof PROVIDER_OPTIONS, string> = {
   ai: "Generacion de guion (IA)",
   tts: "Narracion (TTS)",
   stock: "Material de video (stock footage)",
+  music: "Musica de fondo (sin copyright)",
 };
 
 export function ProviderSettingsPanel({
