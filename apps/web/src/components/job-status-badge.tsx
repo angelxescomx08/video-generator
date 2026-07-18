@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge, statusVariant } from "@/components/ui/badge";
+import { GenerationProgress } from "@/components/generation-progress";
 import type { Video } from "@video-generator/db";
 
 const TERMINAL_STATUSES = new Set(["ready", "published", "failed"]);
@@ -20,6 +21,8 @@ export function VideoStatusPanel({ initialVideo }: { initialVideo: Video }) {
 
   return (
     <div className="space-y-4">
+      <GenerationProgress status={video.status} />
+
       <div className="flex items-center gap-3">
         <Badge variant={statusVariant(video.status)}>{video.status}</Badge>
         {!TERMINAL_STATUSES.has(video.status) && (
