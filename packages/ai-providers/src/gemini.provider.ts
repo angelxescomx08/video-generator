@@ -13,13 +13,63 @@ interface GeminiProviderOptions {
   model: string;
 }
 
+/**
+ * responseSchema para forzar salida estructurada valida (evita JSON malformado como strings sin
+ * comillas). Usa el formato de esquema de Gemini (tipos en MAYUSCULAS). Espeja ScriptGenerationResult.
+ */
+const SCRIPT_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    title: { type: "STRING" },
+    description: { type: "STRING" },
+    script: { type: "STRING" },
+    scenes: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          index: { type: "INTEGER" },
+          narrationText: { type: "STRING" },
+          estimatedDurationSeconds: { type: "NUMBER" },
+          visualKeywords: { type: "ARRAY", items: { type: "STRING" } },
+          captionText: { type: "STRING" },
+        },
+        required: ["index", "narrationText", "estimatedDurationSeconds", "visualKeywords"],
+      },
+    },
+    tags: { type: "ARRAY", items: { type: "STRING" } },
+    extractedFacts: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          factType: { type: "STRING" },
+          factValue: { type: "STRING" },
+        },
+        required: ["factType", "factValue"],
+      },
+    },
+  },
+  required: ["title", "description", "script", "scenes", "tags", "extractedFacts"],
+} as const;
+
+/** Quita fences markdown (```json ... ```) que a veces envuelven la respuesta antes de parsear. */
+function parseJsonLenient(text: string): unknown {
+  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  return JSON.parse(cleaned);
+}
+
 /** Ready to activate via AI_PROVIDER=gemini + GOOGLE_GEMINI_API_KEY. */
 export class GeminiProvider implements AIProvider {
   readonly name = "gemini";
 
   constructor(private readonly options: GeminiProviderOptions) {}
 
-  private async generateJson(systemPrompt: string, userPrompt: string): Promise<unknown> {
+  private async generateJson(
+    systemPrompt: string,
+    userPrompt: string,
+    responseSchema?: unknown,
+  ): Promise<unknown> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.options.model}:generateContent?key=${this.options.apiKey}`;
     const response = await fetch(url, {
       method: "POST",
@@ -27,7 +77,10 @@ export class GeminiProvider implements AIProvider {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-        generationConfig: { responseMimeType: "application/json" },
+        generationConfig: {
+          responseMimeType: "application/json",
+          ...(responseSchema ? { responseSchema } : {}),
+        },
       }),
     });
 
@@ -36,17 +89,21 @@ export class GeminiProvider implements AIProvider {
     }
 
     const data = (await response.json()) as {
-      candidates: { content: { parts: { text: string }[] } }[];
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
     };
-    return JSON.parse(data.candidates[0]!.content.parts[0]!.text);
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      throw new Error(`Gemini returned no content: ${JSON.stringify(data)}`);
+    }
+    return parseJsonLenient(text);
   }
 
   async generateScript(req: ScriptGenerationRequest): Promise<ScriptGenerationResult> {
     const regenerationBlock = req.regenerationInstruction
       ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
       : "";
-    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nDevuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
-    const raw = await this.generateJson(req.systemPrompt, userPrompt);
+    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nIdea / topico especifico (base del guion): ${req.topic ?? "elige uno apropiado"}\nDevuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
+    const raw = await this.generateJson(req.systemPrompt, userPrompt, SCRIPT_RESPONSE_SCHEMA);
     return raw as ScriptGenerationResult;
   }
 

@@ -16,7 +16,7 @@ const envSchema = z.object({
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
 
   GOOGLE_GEMINI_API_KEY: z.string().optional(),
-  GEMINI_MODEL: z.string().default("gemini-1.5-flash"),
+  GEMINI_MODEL: z.string().default("gemini-flash-latest"),
 
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-5"),

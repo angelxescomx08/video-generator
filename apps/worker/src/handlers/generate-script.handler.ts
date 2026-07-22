@@ -1,5 +1,5 @@
 import { resolveProvider } from "@video-generator/ai-providers";
-import { db, generationHistory, themes, videos } from "@video-generator/db";
+import { db, FACT_TYPES, generationHistory, themes, videos, type FactType } from "@video-generator/db";
 import { getBoss, QUEUES, videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
 import { eq } from "drizzle-orm";
 import { storeMemory } from "../memory/embed";
@@ -32,18 +32,26 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
       })
       .where(eq(videos.id, videoId));
 
-    if (result.extractedFacts.length > 0) {
-      await db
-        .insert(generationHistory)
-        .values(
-          result.extractedFacts.map((f) => ({
-            themeId: theme.id,
-            videoId,
-            factType: f.factType as (typeof generationHistory.$inferInsert)["factType"],
-            factValue: f.factValue,
-          })),
-        )
-        .onConflictDoNothing();
+    // El LLM puede devolver hechos malformados (factType nulo/desconocido o factValue
+    // vacio). Ambas columnas son NOT NULL y factType esta acotado a FACT_TYPES, asi que
+    // descartamos lo invalido antes de insertar en vez de dejar que reviente el INSERT.
+    const validFactTypes = new Set<string>(FACT_TYPES);
+    const factsToInsert = (result.extractedFacts ?? [])
+      .filter((f) => validFactTypes.has(f?.factType) && typeof f?.factValue === "string" && f.factValue.trim() !== "")
+      .map((f) => ({
+        themeId: theme.id,
+        videoId,
+        factType: f.factType as FactType,
+        factValue: f.factValue.trim(),
+      }));
+
+    const skipped = (result.extractedFacts?.length ?? 0) - factsToInsert.length;
+    if (skipped > 0) {
+      logger.warn(`Descartados ${skipped} hechos invalidos del LLM para video ${videoId}`);
+    }
+
+    if (factsToInsert.length > 0) {
+      await db.insert(generationHistory).values(factsToInsert).onConflictDoNothing();
     }
 
     await storeMemory({
