@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 
@@ -12,6 +12,7 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
   const [themeId, setThemeId] = useState(themes[0]?.id ?? "");
   const [format, setFormat] = useState<"long" | "short">("short");
   const [topic, setTopic] = useState("");
+  const idea = topic.trim();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,7 +24,7 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
       const response = await fetch("/api/videos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ themeId, format, topic: topic || undefined }),
+        body: JSON.stringify({ themeId, format, topic: idea || undefined }),
       });
       if (!response.ok) throw new Error((await response.json()).error ?? "Error al crear el video");
       const video = await response.json();
@@ -57,18 +58,24 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="topic">Topico especifico (opcional)</Label>
-        <Input
-          id="topic"
+        <Label htmlFor="idea">Idea del video</Label>
+        <Textarea
+          id="idea"
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          placeholder="ej. la parabola del sembrador"
+          required
+          rows={6}
+          className="min-h-[140px] resize-y"
+          placeholder="Describe la idea del video. Puedes pegar el tema, notas, texto relacionado, un guion base, referencias... La IA generara el guion a partir de esto."
         />
+        <p className="text-xs text-muted-foreground">
+          Mientras mas contexto des, mejor sera el guion generado.
+        </p>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <Button type="submit" disabled={submitting || !themeId}>
+      <Button type="submit" disabled={submitting || !themeId || !idea}>
         {submitting ? "Creando..." : "Generar video"}
       </Button>
     </form>

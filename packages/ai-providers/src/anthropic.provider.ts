@@ -49,10 +49,31 @@ export class AnthropicProvider implements AIProvider {
   }
 
   async generateScript(req: ScriptGenerationRequest): Promise<ScriptGenerationResult> {
+    const memoryBlock = req.memoryContext.map((m) => `- (${m.contentType}) ${m.content}`).join("\n") || "Ninguno";
+    const avoidBlock = req.avoidFacts.length > 0 ? req.avoidFacts.join(", ") : "Ninguno";
+    const feedbackBlock =
+      req.recentFeedback.map((f) => `- rating=${f.rating ?? "N/A"} comentario="${f.comment ?? ""}"`).join("\n") ||
+      "Ninguno";
     const regenerationBlock = req.regenerationInstruction
       ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
       : "";
-    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nDevuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
+    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}
+
+Tema: ${req.themeSlug}
+Formato: ${req.format}
+Duracion objetivo: ${req.targetDurationSeconds}s
+Idea / topico especifico (base del guion): ${req.topic ?? "elige uno apropiado"}
+
+Memoria de generaciones pasadas relevantes:
+${memoryBlock}
+
+No repitas exactamente estos hechos ya usados:
+${avoidBlock}
+
+Feedback reciente de la audiencia/usuario a considerar:
+${feedbackBlock}
+
+Devuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
     const raw = await this.messageJson(req.systemPrompt, userPrompt);
     return raw as ScriptGenerationResult;
   }
