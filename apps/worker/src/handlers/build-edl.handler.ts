@@ -160,6 +160,11 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
     edl = reconcileSceneTiming(edl, sceneAudio);
     edl = withWordTimings(edl);
 
+    // La preferencia del usuario manda sobre lo que devuelva el LLM/fallback: si los subtitulos
+    // estan desactivados para este video, forzamos captions.enabled=false para que el render
+    // (edl-to-ffmpeg + render-video.handler) no los queme.
+    edl.captions.enabled = video.captionsEnabled;
+
     const musicProvider = await resolveMusicProvider();
     if (musicProvider) {
       const track = await findBackgroundMusic(

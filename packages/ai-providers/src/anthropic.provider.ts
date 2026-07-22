@@ -73,6 +73,8 @@ ${avoidBlock}
 Feedback reciente de la audiencia/usuario a considerar:
 ${feedbackBlock}
 
+${req.styleGuide ?? ""}
+
 Devuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
     const raw = await this.messageJson(req.systemPrompt, userPrompt);
     return raw as ScriptGenerationResult;

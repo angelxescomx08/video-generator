@@ -34,6 +34,8 @@ export interface ScriptGenerationRequest {
   recentFeedback: FeedbackSummary[];
   /** Instruccion puntual del feedback que disparo esta regeneracion (p.ej. "hazlo mas largo") — se debe priorizar sobre el resto del contexto. */
   regenerationInstruction?: string;
+  /** Guia de tono/estilo + refuerzo de duracion (numero de palabras/escenas). La arma el builder; todos los providers la deben incluir en el prompt. */
+  styleGuide?: string;
 }
 
 export interface ExtractedFact {

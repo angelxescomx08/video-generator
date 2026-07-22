@@ -64,7 +64,7 @@ export const editDecisionListSchema = z.object({
     backgroundMusicVolumeDb: z.number().optional(),
   }),
   captions: z.object({
-    enabled: z.boolean(),
+    enabled: z.boolean().default(false),
     style: captionStyleSchema,
   }),
   scenes: z.array(edlSceneSchema),
@@ -99,7 +99,7 @@ export function buildFallbackEdl(params: {
     totalDurationSeconds: cursor,
     audio: { voiceoverPath: params.voiceoverPath },
     captions: {
-      enabled: true,
+      enabled: false,
       style: {
         fontFamily: "Arial",
         fontSizePx: params.format === "short" ? 64 : 42,

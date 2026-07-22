@@ -22,6 +22,8 @@ export async function POST(request: Request) {
       themeId: parsed.data.themeId,
       format: parsed.data.format,
       topic: parsed.data.topic,
+      captionsEnabled: parsed.data.captionsEnabled,
+      targetDurationSeconds: parsed.data.targetDurationSeconds,
       status: "queued",
     })
     .returning();

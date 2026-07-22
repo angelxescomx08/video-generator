@@ -101,6 +101,8 @@ ${avoidBlock}
 Feedback reciente de la audiencia/usuario a considerar:
 ${feedbackBlock}
 
+${req.styleGuide ?? ""}
+
 ${SCRIPT_JSON_INSTRUCTIONS}`;
 
     const raw = await this.chatJson(req.systemPrompt, userPrompt);

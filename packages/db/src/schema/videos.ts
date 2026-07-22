@@ -1,4 +1,4 @@
-import { integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { themes } from "./themes";
 
 export const VIDEO_FORMATS = ["long", "short"] as const;
@@ -26,6 +26,10 @@ export const videos = pgTable("videos", {
     .references(() => themes.id),
   format: text("format").notNull().$type<VideoFormat>(),
   topic: text("topic"),
+  /** Subtitulos quemados en el video. Desactivados por defecto (ver edl.captions.enabled). */
+  captionsEnabled: boolean("captions_enabled").notNull().default(false),
+  /** Duracion objetivo del guion en segundos (la elige el usuario). Si es null, el builder usa el default por formato. */
+  targetDurationSeconds: integer("target_duration_seconds"),
   title: text("title"),
   description: text("description"),
   status: text("status").notNull().default("draft").$type<VideoStatus>(),
