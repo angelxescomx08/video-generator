@@ -78,17 +78,24 @@ export function buildFfmpegArgs(edl: EditDecisionList, options: FfmpegBuildOptio
   const voiceoverInputIndex = edl.scenes.length;
   args.push("-i", edl.audio.voiceoverPath);
 
-  let finalAudioMapArg = `${voiceoverInputIndex}:a`;
+  // -14 LUFS integrado / -1 dBTP de pico verdadero: el target oficial de YouTube. YouTube solo
+  // BAJA el audio si supera esto (nunca lo sube), asi que mezclar por debajo suena mas flojo que
+  // el resto de la plataforma — normalizar aqui evita tener que ajustar el volumen a mano despues.
+  const LOUDNORM_FILTER = "loudnorm=I=-14:TP=-1:LRA=11";
+
+  let premixLabel = `${voiceoverInputIndex}:a`;
   if (options.backgroundMusicPath) {
     const musicInputIndex = voiceoverInputIndex + 1;
     args.push("-i", options.backgroundMusicPath);
     const musicVolumeLinear = Math.pow(10, (edl.audio.backgroundMusicVolumeDb ?? -18) / 20);
     filterParts.push(
       `[${musicInputIndex}:a]volume=${musicVolumeLinear},aloop=loop=-1:size=2e9[musicloop]`,
-      `[${voiceoverInputIndex}:a][musicloop]amix=inputs=2:duration=first:dropout_transition=2[aout]`,
+      `[${voiceoverInputIndex}:a][musicloop]amix=inputs=2:duration=first:dropout_transition=2[amixed]`,
     );
-    finalAudioMapArg = "[aout]";
+    premixLabel = "amixed";
   }
+  filterParts.push(`[${premixLabel}]${LOUDNORM_FILTER}[aout]`);
+  const finalAudioMapArg = "[aout]";
 
   args.push(
     "-filter_complex",

@@ -64,21 +64,24 @@ function withWordTimings(edl: EditDecisionList): EditDecisionList {
   return { ...edl, scenes };
 }
 
-/** Prueba primero el mood sugerido por la IA (segun el tono real de este video), luego las tags
- * del tema juntas, luego cada una por separado, y por ultimo tags genericas — la musica de fondo
- * es un extra, nunca debe tumbar la generacion del video. */
+/** Prueba primero el mood sugerido por la IA (segun el tono real de este video) y las tags del
+ * tema, ambas combinadas; luego cada tag por separado (IA, tema, generica en ese orden) — Jamendo
+ * (y providers similares) tratan tags=a+b+c como un AND estricto, asi que combinar 3-4 tags casi
+ * siempre da 0 resultados y hay que poder caer a una sola tag. La musica de fondo es un extra,
+ * nunca debe tumbar la generacion del video. */
 async function findBackgroundMusic(
   provider: MusicProvider,
   aiSuggestedTags: string[],
   themeTags: string[],
   minDurationSeconds: number,
 ): Promise<MusicTrackRef | null> {
-  const tagVariants: string[][] = [
-    aiSuggestedTags,
-    themeTags,
-    ...themeTags.map((tag) => [tag]),
-    GENERIC_MUSIC_TAGS,
-  ].filter((tags) => tags.length > 0);
+  const combinedVariants = [aiSuggestedTags, themeTags].filter((tags) => tags.length > 1);
+  const individualTags = [...aiSuggestedTags, ...themeTags, ...GENERIC_MUSIC_TAGS].filter(
+    (tag, i, arr) => tag && arr.indexOf(tag) === i,
+  );
+  const tagVariants: string[][] = [...combinedVariants, ...individualTags.map((tag) => [tag])].filter(
+    (tags) => tags.length > 0,
+  );
 
   for (const tags of tagVariants) {
     try {

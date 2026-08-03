@@ -41,9 +41,10 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
       await tx.delete(videoStats).where(inArray(videoStats.publishedVideoId, publishedIds));
     }
     await tx.delete(publishedVideos).where(eq(publishedVideos.videoId, id));
+    // Orden importa por las FKs: generation_jobs -> video_versions -> feedback.
+    await tx.delete(generationJobs).where(eq(generationJobs.videoId, id));
     await tx.delete(videoVersions).where(eq(videoVersions.videoId, id));
     await tx.delete(feedback).where(eq(feedback.videoId, id));
-    await tx.delete(generationJobs).where(eq(generationJobs.videoId, id));
     // video_memory/generation_history son hechos a nivel de tema (dedup entre generaciones);
     // se desvincula el video en vez de borrarlos para no perder ese historial.
     await tx.update(videoMemory).set({ videoId: null }).where(eq(videoMemory.videoId, id));
