@@ -1,5 +1,6 @@
 import { resolveEmbeddingProvider } from "@video-generator/ai-providers";
 import { db, videoMemory, type MemoryContentType } from "@video-generator/db";
+import type { ProviderCost } from "@video-generator/types";
 
 export async function storeMemory(params: {
   themeId: string;
@@ -7,9 +8,9 @@ export async function storeMemory(params: {
   contentType: MemoryContentType;
   content: string;
   metadata?: Record<string, unknown>;
-}): Promise<void> {
+}): Promise<ProviderCost> {
   const embeddingProvider = await resolveEmbeddingProvider();
-  const embedding = await embeddingProvider.embed({ text: params.content });
+  const { result: embedding, cost } = await embeddingProvider.embed({ text: params.content });
 
   await db.insert(videoMemory).values({
     themeId: params.themeId,
@@ -19,4 +20,6 @@ export async function storeMemory(params: {
     embedding,
     metadata: params.metadata,
   });
+
+  return cost;
 }

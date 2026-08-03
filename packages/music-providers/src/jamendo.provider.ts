@@ -32,6 +32,9 @@ export class JamendoProvider implements MusicProvider {
       include: "musicinfo",
       audioformat: "mp3",
       order: "popularity_total",
+      // Excluye licencias "no comercial" (CC BY-NC*) — un canal de YouTube monetizado cuenta como
+      // uso comercial, y sin este filtro la API puede devolver pistas que no serian legales de usar.
+      ccnc: "false",
     });
     if (req.minDurationSeconds) {
       params.set("durationbetween", `${Math.round(req.minDurationSeconds)}_1200`);

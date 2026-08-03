@@ -1,4 +1,4 @@
-import type { EditDecisionList } from "@video-generator/types";
+import type { EditDecisionList, ProviderCost } from "@video-generator/types";
 import type { StockClipRef } from "@video-generator/types";
 
 export interface ScriptScene {
@@ -77,10 +77,22 @@ export const VISUAL_KEYWORDS_INSTRUCTION =
   " en ingles, con 2-4 palabras simples y genericas (sustantivos concretos, no frases), ideales" +
   " para buscar en bancos de video como Pixabay o Pexels.";
 
+/** Los bancos de musica libre de copyright (Jamendo) indexan tags de mood/genero en ingles. */
+export const MUSIC_SUGGESTION_INSTRUCTION =
+  "Ademas, agrega audio.musicSuggestionTags: 2-4 palabras EN INGLES describiendo el mood/genero de" +
+  " musica de fondo libre de copyright que mejor encaje con el tono de este video (ej. " +
+  '["epic", "cinematic", "tense"] o ["upbeat", "corporate", "motivational"]), para buscarla en' +
+  " bancos como Jamendo.";
+
+export interface AICallResult<T> {
+  result: T;
+  cost: ProviderCost;
+}
+
 export interface AIProvider {
   readonly name: string;
-  generateScript(req: ScriptGenerationRequest): Promise<ScriptGenerationResult>;
-  generateEDL(req: EDLGenerationRequest): Promise<EditDecisionList>;
-  embed(req: EmbeddingRequest): Promise<number[]>;
+  generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>>;
+  generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>>;
+  embed(req: EmbeddingRequest): Promise<AICallResult<number[]>>;
   healthCheck(): Promise<boolean>;
 }

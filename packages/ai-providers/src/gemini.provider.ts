@@ -1,6 +1,8 @@
-import { editDecisionListSchema, type EditDecisionList } from "@video-generator/types";
-import { VISUAL_KEYWORDS_INSTRUCTION } from "./types";
+import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
+import { estimateGeminiCost } from "./pricing";
+import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
+  AICallResult,
   AIProvider,
   EDLGenerationRequest,
   EmbeddingRequest,
@@ -69,7 +71,7 @@ export class GeminiProvider implements AIProvider {
     systemPrompt: string,
     userPrompt: string,
     responseSchema?: unknown,
-  ): Promise<unknown> {
+  ): Promise<{ json: unknown; cost: ProviderCost }> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.options.model}:generateContent?key=${this.options.apiKey}`;
     const response = await fetch(url, {
       method: "POST",
@@ -90,34 +92,39 @@ export class GeminiProvider implements AIProvider {
 
     const data = (await response.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
     };
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) {
       throw new Error(`Gemini returned no content: ${JSON.stringify(data)}`);
     }
-    return parseJsonLenient(text);
+    const cost = estimateGeminiCost(this.options.model, {
+      inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
+      outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+    });
+    return { json: parseJsonLenient(text), cost };
   }
 
-  async generateScript(req: ScriptGenerationRequest): Promise<ScriptGenerationResult> {
+  async generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>> {
     const regenerationBlock = req.regenerationInstruction
       ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
       : "";
     const userPrompt = `${regenerationBlock}${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nIdea / topico especifico (base del guion): ${req.topic ?? "elige uno apropiado"}\n\n${req.styleGuide ?? ""}\n\nDevuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
-    const raw = await this.generateJson(req.systemPrompt, userPrompt, SCRIPT_RESPONSE_SCHEMA);
-    return raw as ScriptGenerationResult;
+    const { json, cost } = await this.generateJson(req.systemPrompt, userPrompt, SCRIPT_RESPONSE_SCHEMA);
+    return { result: json as ScriptGenerationResult, cost };
   }
 
-  async generateEDL(req: EDLGenerationRequest): Promise<EditDecisionList> {
-    const userPrompt = `Genera una Edit Decision List JSON para estas escenas: ${JSON.stringify(req.scenes)}, formato ${req.format}, clips: ${JSON.stringify(req.availableClips)}.`;
-    const raw = await this.generateJson("Eres un editor de video experto.", userPrompt);
-    const parsed = editDecisionListSchema.safeParse(raw);
+  async generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>> {
+    const userPrompt = `Genera una Edit Decision List JSON para estas escenas: ${JSON.stringify(req.scenes)}, formato ${req.format}, clips: ${JSON.stringify(req.availableClips)}.\n\n${MUSIC_SUGGESTION_INSTRUCTION}`;
+    const { json, cost } = await this.generateJson("Eres un editor de video experto.", userPrompt);
+    const parsed = editDecisionListSchema.safeParse(json);
     if (!parsed.success) {
       throw new Error(`Gemini returned an invalid EDL: ${parsed.error.message}`);
     }
-    return parsed.data;
+    return { result: parsed.data, cost };
   }
 
-  async embed(req: EmbeddingRequest): Promise<number[]> {
+  async embed(req: EmbeddingRequest): Promise<AICallResult<number[]>> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${this.options.apiKey}`;
     const response = await fetch(url, {
       method: "POST",
@@ -130,7 +137,12 @@ export class GeminiProvider implements AIProvider {
     }
 
     const data = (await response.json()) as { embedding: { values: number[] } };
-    return data.embedding.values;
+    // El endpoint :embedContent no regresa usageMetadata; se aproxima 1 token ~ 4 caracteres.
+    const cost = estimateGeminiCost("text-embedding-004", {
+      inputTokens: Math.ceil(req.text.length / 4),
+      outputTokens: 0,
+    });
+    return { result: data.embedding.values, cost };
   }
 
   async healthCheck(): Promise<boolean> {

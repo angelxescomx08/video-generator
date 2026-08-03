@@ -4,3 +4,4 @@ export { PiperProvider } from "./piper.provider";
 export { CoquiProvider } from "./coqui.provider";
 export { ElevenLabsProvider } from "./elevenlabs.provider";
 export { AzureTTSProvider } from "./azure.provider";
+export { GoogleTTSProvider } from "./google.provider";

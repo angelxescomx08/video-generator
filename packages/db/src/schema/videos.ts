@@ -32,6 +32,8 @@ export const videos = pgTable("videos", {
   targetDurationSeconds: integer("target_duration_seconds"),
   title: text("title"),
   description: text("description"),
+  /** Tags de YouTube (no hashtags) sugeridos por la IA en generate-script — se envian tal cual al publicar. */
+  tags: jsonb("tags").$type<string[]>(),
   status: text("status").notNull().default("draft").$type<VideoStatus>(),
   script: text("script"),
   scenes: jsonb("scenes"),

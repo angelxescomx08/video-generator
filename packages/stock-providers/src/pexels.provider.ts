@@ -1,5 +1,6 @@
 import type { StockClipRef, StockSearchRequest } from "@video-generator/types";
 import { downloadUrlTo } from "./download-util";
+import { freeStockCost } from "./pricing";
 import type { StockFootageProvider } from "./types";
 
 interface PexelsProviderOptions {
@@ -62,6 +63,7 @@ export class PexelsProvider implements StockFootageProvider {
           height: file.height,
           durationSeconds: hit.duration,
           attribution: `Video by Pexels (${hit.url})`,
+          cost: freeStockCost(this.name),
         };
       });
     }
@@ -81,6 +83,7 @@ export class PexelsProvider implements StockFootageProvider {
       width: hit.width,
       height: hit.height,
       attribution: `Photo by Pexels (${hit.url})`,
+      cost: freeStockCost(this.name),
     }));
   }
 

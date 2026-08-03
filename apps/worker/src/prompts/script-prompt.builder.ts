@@ -1,6 +1,7 @@
 import { db, feedback } from "@video-generator/db";
 import type { ScriptGenerationRequest } from "@video-generator/ai-providers";
 import type { Theme, Video } from "@video-generator/db";
+import type { ProviderCost } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import { getAvoidFacts, getRecentFeedback, retrieveMemoryContext } from "../memory/retrieve";
 
@@ -9,10 +10,13 @@ const REPEATABLE_FACT_TYPES = ["bible_verse_used", "quote_used", "title_used"] a
 /** Palabras por minuto de narracion en espanol (ritmo natural, ni lento ni atropellado). */
 const WORDS_PER_MINUTE = 150;
 
-export async function buildScriptGenerationRequest(theme: Theme, video: Video): Promise<ScriptGenerationRequest> {
+export async function buildScriptGenerationRequest(
+  theme: Theme,
+  video: Video,
+): Promise<{ request: ScriptGenerationRequest; cost: ProviderCost }> {
   const queryText = `${theme.name} ${video.topic ?? ""}`.trim();
 
-  const [memoryContext, avoidFacts, recentFeedback, regenerationInstruction] = await Promise.all([
+  const [memory, avoidFacts, recentFeedback, regenerationInstruction] = await Promise.all([
     retrieveMemoryContext(theme.id, queryText),
     getAvoidFacts(theme.id, [...REPEATABLE_FACT_TYPES]),
     getRecentFeedback(theme.id),
@@ -22,17 +26,20 @@ export async function buildScriptGenerationRequest(theme: Theme, video: Video): 
   const targetDurationSeconds = video.targetDurationSeconds ?? (video.format === "short" ? 90 : 300);
 
   return {
-    themeSlug: theme.slug,
-    systemPrompt: theme.systemPrompt,
-    userPromptTemplate: theme.scriptPromptTemplate,
-    topic: video.topic ?? undefined,
-    format: video.format,
-    targetDurationSeconds,
-    memoryContext,
-    avoidFacts,
-    recentFeedback,
-    regenerationInstruction,
-    styleGuide: buildStyleGuide(targetDurationSeconds),
+    request: {
+      themeSlug: theme.slug,
+      systemPrompt: theme.systemPrompt,
+      userPromptTemplate: theme.scriptPromptTemplate,
+      topic: video.topic ?? undefined,
+      format: video.format,
+      targetDurationSeconds,
+      memoryContext: memory.items,
+      avoidFacts,
+      recentFeedback,
+      regenerationInstruction,
+      styleGuide: buildStyleGuide(targetDurationSeconds, video.format),
+    },
+    cost: memory.cost,
   };
 }
 
@@ -42,7 +49,7 @@ export async function buildScriptGenerationRequest(theme: Theme, video: Video): 
  * (p.ej. 28s cuando se pidieron 90). Convertimos los segundos objetivo en un rango de palabras y de
  * escenas concreto para que llene realmente la duracion.
  */
-function buildStyleGuide(targetDurationSeconds: number): string {
+function buildStyleGuide(targetDurationSeconds: number, format: "long" | "short"): string {
   const targetWords = Math.round((targetDurationSeconds / 60) * WORDS_PER_MINUTE);
   const minWords = Math.round(targetWords * 0.9);
   const maxWords = Math.round(targetWords * 1.15);
@@ -54,7 +61,24 @@ function buildStyleGuide(targetDurationSeconds: number): string {
 - Divide la narracion en unas ${sceneCount} escenas (aprox. 8-12s cada una), cada una con su narrationText.
 - Usa TODO el tiempo disponible para desarrollar la historia: contexto, desarrollo, tension y cierre. Nada de resumenes superficiales.`;
 
-  return `${SCRIPT_TONE_GUIDE}\n\n${durationBlock}`;
+  return `${SCRIPT_TONE_GUIDE}\n\n${durationBlock}\n\n${buildSeoGuide(format)}`;
+}
+
+/**
+ * Reglas de SEO para YouTube (title/description/tags) — investigadas contra las guias vigentes de
+ * YouTube Shorts en 2026. YouTube ya NO requiere el hashtag #Shorts para clasificar el video como
+ * Short (lo detecta solo por relacion de aspecto vertical + duracion), pero incluir 2-4 hashtags
+ * relevantes en la descripcion sigue ayudando a la busqueda/discovery.
+ */
+function buildSeoGuide(format: "long" | "short"): string {
+  const shortSpecific = `- Es un YouTube Short: el titulo debe ser un gancho corto y directo (no necesitas escribir "#Shorts" en ningun lado, YouTube lo detecta solo por el formato vertical). Al final de la descripcion agrega 2-4 hashtags en español, cortos y directamente relacionados al tema (ej. #curiosidades #datos) — nunca mas de 4, y nunca hashtags genericos sin relacion.`;
+  const longSpecific = `- Es un video largo: la descripcion puede ser un poco mas extensa que en un Short (hasta ~200 palabras) y puede incluir 1-2 hashtags relevantes al final si encajan naturalmente, sin forzarlos.`;
+
+  return `SEO (title, description, tags — obligatorio, esto determina si YouTube posiciona bien el video):
+- title: pon la palabra o frase clave principal (lo que alguien buscaria o lo que mas engancha del video) dentro de las primeras 3-5 palabras. Maximo ~60 caracteres para que no se corte en busqueda/sugeridos. Nada de mayusculas sostenidas ni clickbait que el video no cumpla — la promesa del titulo debe pagarse en el guion.
+- description: las primeras ~125 caracteres son las unicas visibles antes de "mas" — deben resumir el video y contener la palabra clave principal de forma natural (no una lista de keywords pegadas). Despues de eso, 2-3 frases mas de contexto/keywords relacionados de forma natural, sin repetir la misma palabra clave sin necesidad. Cierra con una llamada a la accion breve (ej. suscribirse, comentar que opinan).
+${format === "short" ? shortSpecific : longSpecific}
+- tags: entre 5 y 8 tags en español, mezclando 2-3 amplios (el tema general, ej. "historia", "curiosidades") con el resto especificos al video puntual (nombres, lugares, el hecho concreto que se cuenta). Sin relleno, sin tags repetidos ni irrelevantes — cada tag es algo que alguien realmente buscaria.`;
 }
 
 /** Guia de TONO y estilo de redaccion (basada en buenas practicas de guionismo para YouTube). */

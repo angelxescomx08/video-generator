@@ -5,6 +5,7 @@ import { VideoStatusPanel } from "@/components/job-status-badge";
 import { FeedbackForm } from "@/components/feedback-form";
 import { PublishPanel } from "@/components/publish-panel";
 import { VideoVersionsPanel } from "@/components/video-versions-panel";
+import { CostPanel } from "@/components/cost-panel";
 import { DeleteVideoButton } from "@/components/delete-video-button";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,8 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
       <VideoStatusPanel initialVideo={video} />
 
       <VideoVersionsPanel videoId={video.id} />
+
+      <CostPanel videoId={video.id} />
 
       {video.status === "ready" && (
         <div className="space-y-2">

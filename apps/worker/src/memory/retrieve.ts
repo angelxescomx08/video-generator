@@ -8,15 +8,16 @@ import {
 } from "@video-generator/db";
 import { cosineDistance, desc, eq, and, inArray, sql } from "drizzle-orm";
 import type { FeedbackSummary, MemoryContextItem } from "@video-generator/ai-providers";
+import type { ProviderCost } from "@video-generator/types";
 
 /** Top-k semantically similar past scripts/feedback/style-notes for this theme (RAG-lite recall). */
 export async function retrieveMemoryContext(
   themeId: string,
   queryText: string,
   limit = 8,
-): Promise<MemoryContextItem[]> {
+): Promise<{ items: MemoryContextItem[]; cost: ProviderCost }> {
   const embeddingProvider = await resolveEmbeddingProvider();
-  const queryEmbedding = await embeddingProvider.embed({ text: queryText });
+  const { result: queryEmbedding, cost } = await embeddingProvider.embed({ text: queryText });
 
   const similarity = sql<number>`1 - (${cosineDistance(videoMemory.embedding, queryEmbedding)})`;
 
@@ -32,12 +33,13 @@ export async function retrieveMemoryContext(
     .orderBy((t) => cosineDistance(videoMemory.embedding, queryEmbedding))
     .limit(limit);
 
-  return rows.map((r) => ({
+  const items = rows.map((r) => ({
     content: r.content,
     contentType: r.contentType,
     similarity: Number(r.similarity),
     metadata: (r.metadata as Record<string, unknown>) ?? undefined,
   }));
+  return { items, cost };
 }
 
 /** Exact-match facts already used for this theme (e.g. specific Bible verses) — must not repeat. */

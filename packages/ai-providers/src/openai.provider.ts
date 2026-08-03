@@ -1,6 +1,8 @@
-import { editDecisionListSchema, type EditDecisionList } from "@video-generator/types";
-import { VISUAL_KEYWORDS_INSTRUCTION } from "./types";
+import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
+import { estimateOpenAiCost } from "./pricing";
+import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
+  AICallResult,
   AIProvider,
   EDLGenerationRequest,
   EmbeddingRequest,
@@ -23,7 +25,7 @@ export class OpenAIProvider implements AIProvider {
 
   constructor(private readonly options: OpenAIProviderOptions) {}
 
-  private async chatJson(systemPrompt: string, userPrompt: string): Promise<unknown> {
+  private async chatJson(systemPrompt: string, userPrompt: string): Promise<{ json: unknown; cost: ProviderCost }> {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -44,30 +46,37 @@ export class OpenAIProvider implements AIProvider {
       throw new Error(`OpenAI request failed: ${response.status} ${await response.text()}`);
     }
 
-    const data = (await response.json()) as { choices: { message: { content: string } }[] };
-    return JSON.parse(data.choices[0]!.message.content);
+    const data = (await response.json()) as {
+      choices: { message: { content: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    const cost = estimateOpenAiCost(this.options.model, {
+      inputTokens: data.usage?.prompt_tokens ?? 0,
+      outputTokens: data.usage?.completion_tokens ?? 0,
+    });
+    return { json: JSON.parse(data.choices[0]!.message.content), cost };
   }
 
-  async generateScript(req: ScriptGenerationRequest): Promise<ScriptGenerationResult> {
+  async generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>> {
     const regenerationBlock = req.regenerationInstruction
       ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
       : "";
     const userPrompt = `${regenerationBlock}${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nTopico: ${req.topic ?? "elige uno apropiado"}\n\n${req.styleGuide ?? ""}\n\nDevuelve JSON con: title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
-    const raw = await this.chatJson(req.systemPrompt, userPrompt);
-    return raw as ScriptGenerationResult;
+    const { json, cost } = await this.chatJson(req.systemPrompt, userPrompt);
+    return { result: json as ScriptGenerationResult, cost };
   }
 
-  async generateEDL(req: EDLGenerationRequest): Promise<EditDecisionList> {
-    const userPrompt = `Genera una Edit Decision List (JSON) para ${req.scenes.length} escenas, formato ${req.format}. Escenas: ${JSON.stringify(req.scenes)}. Clips disponibles: ${JSON.stringify(req.availableClips)}.`;
-    const raw = await this.chatJson("Eres un editor de video experto.", userPrompt);
-    const parsed = editDecisionListSchema.safeParse(raw);
+  async generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>> {
+    const userPrompt = `Genera una Edit Decision List (JSON) para ${req.scenes.length} escenas, formato ${req.format}. Escenas: ${JSON.stringify(req.scenes)}. Clips disponibles: ${JSON.stringify(req.availableClips)}.\n\n${MUSIC_SUGGESTION_INSTRUCTION}`;
+    const { json, cost } = await this.chatJson("Eres un editor de video experto.", userPrompt);
+    const parsed = editDecisionListSchema.safeParse(json);
     if (!parsed.success) {
       throw new Error(`OpenAI returned an invalid EDL: ${parsed.error.message}`);
     }
-    return parsed.data;
+    return { result: parsed.data, cost };
   }
 
-  async embed(req: EmbeddingRequest): Promise<number[]> {
+  async embed(req: EmbeddingRequest): Promise<AICallResult<number[]>> {
     const response = await fetch("https://api.openai.com/v1/embeddings", {
       method: "POST",
       headers: {
@@ -84,8 +93,12 @@ export class OpenAIProvider implements AIProvider {
       throw new Error(`OpenAI embeddings request failed: ${response.status} ${await response.text()}`);
     }
 
-    const data = (await response.json()) as { data: { embedding: number[] }[] };
-    return data.data[0]!.embedding;
+    const data = (await response.json()) as { data: { embedding: number[] }[]; usage?: { prompt_tokens?: number } };
+    const cost = estimateOpenAiCost(this.options.embeddingModel ?? "text-embedding-3-small", {
+      inputTokens: data.usage?.prompt_tokens ?? 0,
+      outputTokens: 0,
+    });
+    return { result: data.data[0]!.embedding, cost };
   }
 
   async healthCheck(): Promise<boolean> {

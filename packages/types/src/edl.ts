@@ -62,6 +62,9 @@ export const editDecisionListSchema = z.object({
     voiceoverPath: z.string(),
     backgroundMusicPath: z.string().optional(),
     backgroundMusicVolumeDb: z.number().optional(),
+    /** Tags de mood/genero en ingles sugeridos por la IA para buscar musica libre de copyright
+     * que encaje con el tono del video (ver EDL_JSON_INSTRUCTIONS / prompts de cada AIProvider). */
+    musicSuggestionTags: z.array(z.string()).optional(),
   }),
   captions: z.object({
     enabled: z.boolean().default(false),

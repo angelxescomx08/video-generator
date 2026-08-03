@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { StockClipRef, StockSearchRequest } from "@video-generator/types";
+import { unpricedPremiumStockCost } from "./pricing";
 import { NotImplementedError, type StockFootageProvider } from "./types";
 
 interface StoryblocksProviderOptions {
@@ -59,6 +60,7 @@ export class StoryblocksProvider implements StockFootageProvider {
             ? hit.metadata.duration_frames / hit.metadata.fps
             : undefined,
         attribution: "Licensed via Storyblocks",
+        cost: unpricedPremiumStockCost(this.name),
       }));
   }
 

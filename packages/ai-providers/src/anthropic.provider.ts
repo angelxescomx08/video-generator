@@ -1,5 +1,6 @@
-import { editDecisionListSchema, type EditDecisionList } from "@video-generator/types";
-import { NotImplementedError, VISUAL_KEYWORDS_INSTRUCTION, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
+import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
+import { estimateAnthropicCost } from "./pricing";
+import { MUSIC_SUGGESTION_INSTRUCTION, NotImplementedError, VISUAL_KEYWORDS_INSTRUCTION, type AICallResult, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
 
 interface AnthropicProviderOptions {
   apiKey: string;
@@ -22,7 +23,7 @@ export class AnthropicProvider implements AIProvider {
 
   constructor(private readonly options: AnthropicProviderOptions) {}
 
-  private async messageJson(systemPrompt: string, userPrompt: string): Promise<unknown> {
+  private async messageJson(systemPrompt: string, userPrompt: string): Promise<{ json: unknown; cost: ProviderCost }> {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -42,13 +43,20 @@ export class AnthropicProvider implements AIProvider {
       throw new Error(`Anthropic request failed: ${response.status} ${await response.text()}`);
     }
 
-    const data = (await response.json()) as { content: { type: string; text: string }[] };
+    const data = (await response.json()) as {
+      content: { type: string; text: string }[];
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
     const textBlock = data.content.find((c) => c.type === "text");
     if (!textBlock) throw new Error("Anthropic response had no text block");
-    return extractJsonBlock(textBlock.text);
+    const cost = estimateAnthropicCost(this.options.model, {
+      inputTokens: data.usage?.input_tokens ?? 0,
+      outputTokens: data.usage?.output_tokens ?? 0,
+    });
+    return { json: extractJsonBlock(textBlock.text), cost };
   }
 
-  async generateScript(req: ScriptGenerationRequest): Promise<ScriptGenerationResult> {
+  async generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>> {
     const memoryBlock = req.memoryContext.map((m) => `- (${m.contentType}) ${m.content}`).join("\n") || "Ninguno";
     const avoidBlock = req.avoidFacts.length > 0 ? req.avoidFacts.join(", ") : "Ninguno";
     const feedbackBlock =
@@ -76,21 +84,21 @@ ${feedbackBlock}
 ${req.styleGuide ?? ""}
 
 Devuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
-    const raw = await this.messageJson(req.systemPrompt, userPrompt);
-    return raw as ScriptGenerationResult;
+    const { json, cost } = await this.messageJson(req.systemPrompt, userPrompt);
+    return { result: json as ScriptGenerationResult, cost };
   }
 
-  async generateEDL(req: EDLGenerationRequest): Promise<EditDecisionList> {
-    const userPrompt = `Genera una Edit Decision List JSON para estas escenas: ${JSON.stringify(req.scenes)}, formato ${req.format}, clips: ${JSON.stringify(req.availableClips)}.`;
-    const raw = await this.messageJson("Eres un editor de video experto.", userPrompt);
-    const parsed = editDecisionListSchema.safeParse(raw);
+  async generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>> {
+    const userPrompt = `Genera una Edit Decision List JSON para estas escenas: ${JSON.stringify(req.scenes)}, formato ${req.format}, clips: ${JSON.stringify(req.availableClips)}.\n\n${MUSIC_SUGGESTION_INSTRUCTION}`;
+    const { json, cost } = await this.messageJson("Eres un editor de video experto.", userPrompt);
+    const parsed = editDecisionListSchema.safeParse(json);
     if (!parsed.success) {
       throw new Error(`Anthropic returned an invalid EDL: ${parsed.error.message}`);
     }
-    return parsed.data;
+    return { result: parsed.data, cost };
   }
 
-  async embed(_req: EmbeddingRequest): Promise<number[]> {
+  async embed(_req: EmbeddingRequest): Promise<AICallResult<number[]>> {
     throw new NotImplementedError(this.name, "embed");
   }
 

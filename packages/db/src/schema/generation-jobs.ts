@@ -1,5 +1,6 @@
 import { integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { videos } from "./videos";
+import { videoVersions } from "./video-versions";
 
 export const JOB_TYPES = [
   "script",
@@ -20,6 +21,8 @@ export const generationJobs = pgTable("generation_jobs", {
   videoId: uuid("video_id")
     .notNull()
     .references(() => videos.id),
+  /** Se asigna cuando render-video.handler.ts crea la version que "reclama" este job para su costo. */
+  videoVersionId: uuid("video_version_id").references(() => videoVersions.id),
   jobType: text("job_type").notNull().$type<JobType>(),
   pgbossJobId: uuid("pgboss_job_id"),
   status: text("status").notNull().default("pending").$type<JobStatus>(),

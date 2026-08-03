@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // pgvector similarity search used for past scripts (see apps/worker/src/memory/retrieve.ts).
   if (parsed.data.comment) {
     const embeddingProvider = await resolveEmbeddingProvider();
-    const embedding = await embeddingProvider.embed({ text: parsed.data.comment });
+    const { result: embedding } = await embeddingProvider.embed({ text: parsed.data.comment });
     await db.insert(videoMemory).values({
       themeId: video.themeId,
       videoId: id,

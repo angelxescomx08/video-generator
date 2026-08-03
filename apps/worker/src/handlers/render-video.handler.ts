@@ -1,7 +1,15 @@
-import { db, videoVersions, videos } from "@video-generator/db";
+import {
+  db,
+  generationJobs,
+  videoVersions,
+  videos,
+  appSettings,
+  USD_TO_MXN_RATE_KEY,
+  DEFAULT_USD_TO_MXN_RATE,
+} from "@video-generator/db";
 import { videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
-import type { EditDecisionList } from "@video-generator/types";
-import { desc, eq } from "drizzle-orm";
+import type { CostItem, EditDecisionList } from "@video-generator/types";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import path from "node:path";
 import { buildFfmpegArgs } from "../ffmpeg/edl-to-ffmpeg";
 import { logFfmpegProgress, runFfmpeg } from "../ffmpeg/render";
@@ -11,6 +19,60 @@ import { runStage } from "../pipeline/orchestrator";
 import { STAGES } from "../pipeline/stage-context";
 import { getJobWorkspace, getRenderOutputPath } from "../util/tmp-workspace";
 import { logger } from "../util/logger";
+
+const RENDER_COST: CostItem = {
+  stage: "render",
+  providerType: "render",
+  providerName: "ffmpeg",
+  isFree: true,
+  isLocal: true,
+  amountUsd: 0,
+};
+
+/**
+ * Junta el costo de todos los generation_jobs de este ciclo de generacion (los que aun no estan
+ * atados a ninguna version) + el de renderizar, lo guarda en la version recien creada, y marca
+ * esos jobs con videoVersionId para que la siguiente regeneracion no los vuelva a contar.
+ */
+async function attributeCostsToVersion(videoId: string, versionId: string): Promise<void> {
+  const unattributedJobs = await db
+    .select({ id: generationJobs.id, outputPayload: generationJobs.outputPayload })
+    .from(generationJobs)
+    .where(
+      and(eq(generationJobs.videoId, videoId), isNull(generationJobs.videoVersionId), eq(generationJobs.status, "completed")),
+    );
+
+  const jobCosts = unattributedJobs.flatMap((job) => {
+    const payload = job.outputPayload as { costs?: CostItem[] } | null;
+    return payload?.costs ?? [];
+  });
+  const costBreakdown: CostItem[] = [...jobCosts, RENDER_COST];
+
+  const rateRow = await db.query.appSettings.findFirst({ where: eq(appSettings.key, USD_TO_MXN_RATE_KEY) });
+  const rate = rateRow ? Number(rateRow.value) : DEFAULT_USD_TO_MXN_RATE;
+
+  const costTotalUsd = costBreakdown.reduce((sum, c) => sum + c.amountUsd, 0);
+  const costTotalMxn = costTotalUsd * rate;
+
+  await db
+    .update(videoVersions)
+    .set({
+      costBreakdown,
+      costTotalUsd: costTotalUsd.toString(),
+      costTotalMxn: costTotalMxn.toString(),
+      exchangeRateUsed: rate.toString(),
+    })
+    .where(eq(videoVersions.id, versionId));
+
+  if (unattributedJobs.length > 0) {
+    await db
+      .update(generationJobs)
+      .set({ videoVersionId: versionId })
+      .where(
+        and(eq(generationJobs.videoId, videoId), isNull(generationJobs.videoVersionId), eq(generationJobs.status, "completed")),
+      );
+  }
+}
 
 export async function handleRenderVideo(payload: VideoJobPayload): Promise<void> {
   const { videoId } = videoJobPayloadSchema.parse(payload);
@@ -82,6 +144,8 @@ export async function handleRenderVideo(payload: VideoJobPayload): Promise<void>
         updatedAt: new Date(),
       })
       .where(eq(videos.id, videoId));
+
+    await attributeCostsToVersion(videoId, version!.id);
 
     logger.info(`Render complete for video ${videoId}`, { outputPath, version: nextVersion });
     return { outputPath, version: nextVersion };

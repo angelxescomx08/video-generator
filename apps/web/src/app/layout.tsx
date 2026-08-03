@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: "/analytics", label: "Analytics" },
   { href: "/settings/providers", label: "Proveedores" },
   { href: "/settings/accounts", label: "Cuentas" },
+  { href: "/settings/general", label: "Tipo de cambio" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

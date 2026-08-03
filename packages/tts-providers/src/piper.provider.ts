@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { localTtsCost } from "./pricing";
 import { readWavDurationSeconds } from "./wav-utils";
 import type { TTSProvider, TTSSynthesisRequest, TTSSynthesisResult, TTSVoice } from "./types";
 
@@ -40,6 +41,7 @@ export class PiperProvider implements TTSProvider {
     return {
       audioFilePath: destPath,
       durationSeconds: readWavDurationSeconds(audioBuffer),
+      cost: localTtsCost(this.name),
     };
   }
 

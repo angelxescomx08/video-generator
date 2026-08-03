@@ -1,5 +1,6 @@
 import type { StockClipRef, StockSearchRequest } from "@video-generator/types";
 import { downloadUrlTo } from "./download-util";
+import { freeStockCost } from "./pricing";
 import type { StockFootageProvider } from "./types";
 
 interface PixabayProviderOptions {
@@ -60,6 +61,7 @@ export class PixabayProvider implements StockFootageProvider {
           height: hit.videos.medium.height,
           durationSeconds: hit.duration,
           attribution: `Video by Pixabay (${hit.pageURL})`,
+          cost: freeStockCost(this.name),
         }));
     }
 
@@ -78,6 +80,7 @@ export class PixabayProvider implements StockFootageProvider {
         width: hit.imageWidth,
         height: hit.imageHeight,
         attribution: `Image by Pixabay (${hit.pageURL})`,
+        cost: freeStockCost(this.name),
       }));
   }
 

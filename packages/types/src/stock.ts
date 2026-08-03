@@ -1,3 +1,5 @@
+import type { ProviderCost } from "./cost";
+
 export interface StockSearchRequest {
   keywords: string[];
   mediaType: "video" | "image";
@@ -16,4 +18,5 @@ export interface StockClipRef {
   height: number;
   durationSeconds?: number;
   attribution?: string;
+  cost?: ProviderCost;
 }

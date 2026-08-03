@@ -1,6 +1,8 @@
 import { editDecisionListSchema, type EditDecisionList } from "@video-generator/types";
-import { VISUAL_KEYWORDS_INSTRUCTION } from "./types";
+import { ollamaCost } from "./pricing";
+import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
+  AICallResult,
   AIProvider,
   EDLGenerationRequest,
   EmbeddingRequest,
@@ -33,7 +35,7 @@ Responde UNICAMENTE con JSON valido que sea una Edit Decision List con esta form
   "version": 1,
   "format": "long" | "short",
   "totalDurationSeconds": number,
-  "audio": { "voiceoverPath": "" },
+  "audio": { "voiceoverPath": "", "musicSuggestionTags": string[] },
   "captions": { "enabled": true, "style": { "fontFamily": "Arial", "fontSizePx": 42, "color": "#FFFFFF", "position": "bottom" } },
   "scenes": [{
     "index": number,
@@ -45,7 +47,9 @@ Responde UNICAMENTE con JSON valido que sea una Edit Decision List con esta form
     "captionText": string
   }]
 }
-Deja "sourcePath" vacio, se rellena despues. No inventes clips fuera de los indices de escena recibidos.`;
+Deja "sourcePath" vacio, se rellena despues. No inventes clips fuera de los indices de escena recibidos.
+
+${MUSIC_SUGGESTION_INSTRUCTION}`;
 
 export class OllamaProvider implements AIProvider {
   readonly name = "ollama";
@@ -75,7 +79,7 @@ export class OllamaProvider implements AIProvider {
     return JSON.parse(data.message.content);
   }
 
-  async generateScript(req: ScriptGenerationRequest): Promise<ScriptGenerationResult> {
+  async generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>> {
     const memoryBlock = req.memoryContext.map((m) => `- (${m.contentType}) ${m.content}`).join("\n") || "Ninguno";
     const avoidBlock = req.avoidFacts.length > 0 ? req.avoidFacts.join(", ") : "Ninguno";
     const feedbackBlock =
@@ -106,10 +110,10 @@ ${req.styleGuide ?? ""}
 ${SCRIPT_JSON_INSTRUCTIONS}`;
 
     const raw = await this.chatJson(req.systemPrompt, userPrompt);
-    return raw as ScriptGenerationResult;
+    return { result: raw as ScriptGenerationResult, cost: ollamaCost() };
   }
 
-  async generateEDL(req: EDLGenerationRequest): Promise<EditDecisionList> {
+  async generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>> {
     const scenesBlock = req.scenes
       .map(
         (s) =>
@@ -137,10 +141,10 @@ ${EDL_JSON_INSTRUCTIONS}`;
     if (!parsed.success) {
       throw new Error(`Ollama returned an invalid EDL: ${parsed.error.message}`);
     }
-    return parsed.data;
+    return { result: parsed.data, cost: ollamaCost() };
   }
 
-  async embed(req: EmbeddingRequest): Promise<number[]> {
+  async embed(req: EmbeddingRequest): Promise<AICallResult<number[]>> {
     const response = await fetch(`${this.options.baseUrl}/api/embeddings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -152,7 +156,7 @@ ${EDL_JSON_INSTRUCTIONS}`;
     }
 
     const data = (await response.json()) as { embedding: number[] };
-    return data.embedding;
+    return { result: data.embedding, cost: ollamaCost() };
   }
 
   async healthCheck(): Promise<boolean> {

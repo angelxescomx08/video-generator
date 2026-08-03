@@ -43,6 +43,7 @@ export async function handlePublishVideo(payload: PublishJobPayload): Promise<vo
         videoFilePath: video.renderOutputPath!,
         title: video.title ?? "Untitled",
         description: video.description ?? "",
+        tags: video.tags ?? [],
         isShort: video.format === "short",
       },
     );

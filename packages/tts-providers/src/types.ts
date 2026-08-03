@@ -1,3 +1,5 @@
+import type { ProviderCost } from "@video-generator/types";
+
 export interface TTSSynthesisRequest {
   text: string;
   voiceId?: string;
@@ -18,6 +20,7 @@ export interface TTSSynthesisResult {
   audioFilePath: string;
   durationSeconds: number;
   wordTimings?: WordTiming[];
+  cost: ProviderCost;
 }
 
 export interface TTSVoice {

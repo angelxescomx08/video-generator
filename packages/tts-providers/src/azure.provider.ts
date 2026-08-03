@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { azureTtsCost } from "./pricing";
 import type { TTSProvider, TTSSynthesisRequest, TTSSynthesisResult, TTSVoice } from "./types";
 
 interface AzureTTSProviderOptions {
@@ -53,7 +54,7 @@ export class AzureTTSProvider implements TTSProvider {
     await mkdir(path.dirname(destPath), { recursive: true });
     await writeFile(destPath, audioBuffer);
 
-    return { audioFilePath: destPath, durationSeconds: 0 };
+    return { audioFilePath: destPath, durationSeconds: 0, cost: azureTtsCost(req.text.length) };
   }
 
   async healthCheck(): Promise<boolean> {

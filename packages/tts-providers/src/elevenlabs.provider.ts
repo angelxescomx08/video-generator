@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { elevenLabsCost } from "./pricing";
 import type { TTSProvider, TTSSynthesisRequest, TTSSynthesisResult, TTSVoice } from "./types";
 
 interface ElevenLabsProviderOptions {
@@ -50,7 +51,7 @@ export class ElevenLabsProvider implements TTSProvider {
     await writeFile(destPath, audioBuffer);
 
     // ElevenLabs doesn't return duration directly; worker estimates/derives it via ffprobe downstream.
-    return { audioFilePath: destPath, durationSeconds: 0 };
+    return { audioFilePath: destPath, durationSeconds: 0, cost: elevenLabsCost(req.text.length) };
   }
 
   async healthCheck(): Promise<boolean> {

@@ -22,6 +22,20 @@
       "when": 1784690490424,
       "tag": "0002_busy_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785705074134,
+      "tag": "0003_careful_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785715408646,
+      "tag": "0004_long_ricochet",
+      "breakpoints": true
     }
   ]
 }

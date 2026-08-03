@@ -4,10 +4,11 @@ import { and, eq } from "drizzle-orm";
 import { AzureTTSProvider } from "./azure.provider";
 import { CoquiProvider } from "./coqui.provider";
 import { ElevenLabsProvider } from "./elevenlabs.provider";
+import { GoogleTTSProvider } from "./google.provider";
 import { PiperProvider } from "./piper.provider";
 import type { TTSProvider } from "./types";
 
-export type TTSProviderName = "piper" | "coqui" | "elevenlabs" | "azure";
+export type TTSProviderName = "piper" | "coqui" | "elevenlabs" | "azure" | "google";
 
 function instantiate(name: TTSProviderName): TTSProvider {
   const env = loadEnv();
@@ -25,6 +26,13 @@ function instantiate(name: TTSProviderName): TTSProvider {
     case "azure":
       if (!env.AZURE_TTS_KEY || !env.AZURE_TTS_REGION) throw new Error("AZURE_TTS_KEY/AZURE_TTS_REGION not set");
       return new AzureTTSProvider({ key: env.AZURE_TTS_KEY, region: env.AZURE_TTS_REGION });
+    case "google":
+      if (!env.GOOGLE_TTS_API_KEY) throw new Error("GOOGLE_TTS_API_KEY is not set");
+      return new GoogleTTSProvider({
+        apiKey: env.GOOGLE_TTS_API_KEY,
+        voiceName: env.GOOGLE_TTS_VOICE_NAME,
+        languageCode: env.GOOGLE_TTS_LANGUAGE_CODE,
+      });
   }
 }
 

@@ -1,4 +1,5 @@
 import type { StockClipRef, StockSearchRequest } from "@video-generator/types";
+import { unpricedPremiumStockCost } from "./pricing";
 import { NotImplementedError, type StockFootageProvider } from "./types";
 
 interface ShutterstockProviderOptions {
@@ -51,6 +52,7 @@ export class ShutterstockProvider implements StockFootageProvider {
         height: hit.assets.preview_mp4!.height ?? 0,
         durationSeconds: hit.duration,
         attribution: "Licensed via Shutterstock",
+        cost: unpricedPremiumStockCost(this.name),
       }));
   }
 

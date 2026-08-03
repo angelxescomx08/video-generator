@@ -1,6 +1,7 @@
 import { resolveProvider } from "@video-generator/ai-providers";
 import { db, FACT_TYPES, generationHistory, themes, videos, type FactType } from "@video-generator/db";
 import { getBoss, QUEUES, videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
+import type { CostItem } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import { storeMemory } from "../memory/embed";
 import { runStage, setVideoStatus } from "../pipeline/orchestrator";
@@ -18,8 +19,8 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
 
   await runStage(videoId, STAGES.script!, async () => {
     const provider = await resolveProvider();
-    const request = await buildScriptGenerationRequest(theme, video);
-    const result = await provider.generateScript(request);
+    const { request, cost: memoryCost } = await buildScriptGenerationRequest(theme, video);
+    const { result, cost: scriptCost } = await provider.generateScript(request);
 
     await db
       .update(videos)
@@ -28,6 +29,7 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
         description: result.description,
         script: result.script,
         scenes: result.scenes,
+        tags: result.tags,
         updatedAt: new Date(),
       })
       .where(eq(videos.id, videoId));
@@ -54,7 +56,7 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
       await db.insert(generationHistory).values(factsToInsert).onConflictDoNothing();
     }
 
-    await storeMemory({
+    const storeCost = await storeMemory({
       themeId: theme.id,
       videoId,
       contentType: "script",
@@ -62,8 +64,10 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
       metadata: { title: result.title, tags: result.tags },
     });
 
+    const costs: CostItem[] = [memoryCost, scriptCost, storeCost].map((c) => ({ ...c, stage: "script" }));
+
     logger.info(`Script generated for video ${videoId}`, { title: result.title });
-    return result;
+    return { ...result, costs };
   });
 
   await setVideoStatus(videoId, "generating_tts");

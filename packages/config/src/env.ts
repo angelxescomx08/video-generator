@@ -21,12 +21,15 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-5"),
 
-  TTS_PROVIDER: z.enum(["piper", "coqui", "elevenlabs", "azure"]).default("piper"),
+  TTS_PROVIDER: z.enum(["piper", "coqui", "elevenlabs", "azure", "google"]).default("piper"),
   TTS_BASE_URL: z.string().url().default("http://localhost:5002"),
   ELEVENLABS_API_KEY: z.string().optional(),
   ELEVENLABS_DEFAULT_VOICE_ID: z.string().optional(),
   AZURE_TTS_KEY: z.string().optional(),
   AZURE_TTS_REGION: z.string().optional(),
+  GOOGLE_TTS_API_KEY: z.string().optional(),
+  GOOGLE_TTS_VOICE_NAME: z.string().default("es-US-Neural2-A"),
+  GOOGLE_TTS_LANGUAGE_CODE: z.string().default("es-US"),
 
   PIXABAY_API_KEY: z.string().optional(),
   PEXELS_API_KEY: z.string().optional(),

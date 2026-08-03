@@ -2,7 +2,7 @@ import type { ScriptScene } from "@video-generator/ai-providers";
 import { db, videos } from "@video-generator/db";
 import { getBoss, QUEUES, videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
 import { resolveStockProviders, type StockFootageProvider } from "@video-generator/stock-providers";
-import type { StockClipRef } from "@video-generator/types";
+import type { CostItem, ProviderCost, StockClipRef } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import path from "node:path";
 import { runStage, setVideoStatus } from "../pipeline/orchestrator";
@@ -72,6 +72,7 @@ export async function handleFetchStockFootage(payload: VideoJobPayload): Promise
 
     const workspace = await getJobWorkspace(videoId);
     const sceneClips: SceneClip[] = [];
+    const clipCosts: ProviderCost[] = [];
 
     for (const scene of scenes) {
       const bestClip = await findSceneClip(providers, scene, orientation);
@@ -87,12 +88,25 @@ export async function handleFetchStockFootage(payload: VideoJobPayload): Promise
       await bestClip.provider.download(bestClip.clip, localPath);
 
       sceneClips.push({ sceneIndex: scene.index, clip: bestClip.clip, localPath });
+      clipCosts.push(
+        bestClip.clip.cost ?? { providerType: "stock", providerName: bestClip.provider.name, isFree: true, isLocal: false, amountUsd: 0 },
+      );
     }
 
     await db.update(videos).set({ sceneClips, updatedAt: new Date() }).where(eq(videos.id, videoId));
 
+    const stockCost: CostItem = {
+      stage: "stock_footage",
+      providerType: "stock",
+      providerName: clipCosts[0]?.providerName ?? "stock",
+      isFree: clipCosts.every((c) => c.isFree),
+      isLocal: clipCosts.every((c) => c.isLocal),
+      amountUsd: clipCosts.reduce((sum, c) => sum + c.amountUsd, 0),
+      detail: `${scenes.length} escenas`,
+    };
+
     logger.info(`Stock footage fetched for video ${videoId}`, { scenes: sceneClips.length });
-    return sceneClips;
+    return { sceneClips, costs: [stockCost] };
   });
 
   await setVideoStatus(videoId, "building_edl");

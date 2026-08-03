@@ -10,6 +10,20 @@ import type {
   StatsSnapshot,
 } from "./types";
 
+/** YouTube rechaza el request si snippet.tags concatenados (con comas) pasan de 500 caracteres. */
+function sanitizeTags(tags: string[]): string[] {
+  const result: string[] = [];
+  let totalLength = 0;
+  for (const raw of tags) {
+    const tag = raw.trim();
+    if (!tag) continue;
+    totalLength += tag.length + 1; // +1 por la coma que YouTube usa para unirlos internamente.
+    if (totalLength > 500) break;
+    result.push(tag);
+  }
+  return result;
+}
+
 const SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
   "https://www.googleapis.com/auth/youtube.readonly",
@@ -87,7 +101,7 @@ export class YouTubeProvider implements SocialPlatformProvider {
       snippet: {
         title: req.title,
         description: req.description,
-        tags: req.tags ?? [],
+        tags: sanitizeTags(req.tags ?? []),
       },
       status: {
         privacyStatus: req.visibility ?? "public",

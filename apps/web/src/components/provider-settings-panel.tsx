@@ -16,6 +16,7 @@ const PROVIDER_OPTIONS: Record<"ai" | "tts" | "stock" | "music", { name: string;
     { name: "coqui", label: "Coqui (local)", free: true },
     { name: "elevenlabs", label: "ElevenLabs", free: false },
     { name: "azure", label: "Azure TTS", free: false },
+    { name: "google", label: "Google Cloud TTS", free: false },
   ],
   stock: [
     { name: "pixabay", label: "Pixabay", free: true },

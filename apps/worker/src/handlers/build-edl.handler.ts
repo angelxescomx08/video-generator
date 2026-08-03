@@ -3,8 +3,8 @@ import type { ScriptScene } from "@video-generator/ai-providers";
 import { db, themes, videos } from "@video-generator/db";
 import { resolveMusicProvider, type MusicProvider } from "@video-generator/music-providers";
 import { getBoss, QUEUES, videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
-import { editDecisionListSchema, buildFallbackEdl, type EDLScene, type EditDecisionList } from "@video-generator/types";
-import type { MusicTrackRef, StockClipRef } from "@video-generator/types";
+import { buildFallbackEdl, type EDLScene, type EditDecisionList } from "@video-generator/types";
+import type { CostItem, MusicTrackRef, StockClipRef } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import path from "node:path";
 import { estimateWordTimings } from "../captions/word-timing";
@@ -64,14 +64,17 @@ function withWordTimings(edl: EditDecisionList): EditDecisionList {
   return { ...edl, scenes };
 }
 
-/** Prueba las tags del tema juntas, luego cada una por separado, y por ultimo tags genericas —
- * la musica de fondo es un extra, nunca debe tumbar la generacion del video. */
+/** Prueba primero el mood sugerido por la IA (segun el tono real de este video), luego las tags
+ * del tema juntas, luego cada una por separado, y por ultimo tags genericas — la musica de fondo
+ * es un extra, nunca debe tumbar la generacion del video. */
 async function findBackgroundMusic(
   provider: MusicProvider,
+  aiSuggestedTags: string[],
   themeTags: string[],
   minDurationSeconds: number,
 ): Promise<MusicTrackRef | null> {
   const tagVariants: string[][] = [
+    aiSuggestedTags,
     themeTags,
     ...themeTags.map((tag) => [tag]),
     GENERIC_MUSIC_TAGS,
@@ -116,16 +119,16 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
 
     const provider = await resolveProvider();
     let edl: EditDecisionList;
+    let edlCost: CostItem | undefined;
     try {
-      const raw = await provider.generateEDL({
+      const { result, cost } = await provider.generateEDL({
         scenes,
         availableClips: sceneClips.map((sc) => sc.clip),
         format: video.format,
         themeSlug: "",
       });
-      const parsed = editDecisionListSchema.safeParse(raw);
-      if (!parsed.success) throw new Error(parsed.error.message);
-      edl = parsed.data;
+      edl = result;
+      edlCost = { ...cost, stage: "edl" };
     } catch (err) {
       logger.warn(`AI EDL generation failed for video ${videoId}, using deterministic fallback`, {
         error: (err as Error).message,
@@ -169,6 +172,7 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
     if (musicProvider) {
       const track = await findBackgroundMusic(
         musicProvider,
+        edl.audio.musicSuggestionTags ?? [],
         theme?.defaultMusicTags ?? [],
         Math.min(edl.totalDurationSeconds, 60),
       );
@@ -181,6 +185,7 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
             provider: musicProvider.name,
             track: track.title,
             attribution: track.attribution,
+            musicSuggestionTags: edl.audio.musicSuggestionTags,
           });
         } catch (err) {
           logger.warn(`Failed to download background music for video ${videoId}, continuing without it`, {
@@ -195,7 +200,7 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
     await db.update(videos).set({ edl, updatedAt: new Date() }).where(eq(videos.id, videoId));
 
     logger.info(`EDL built for video ${videoId}`, { scenes: edl.scenes.length });
-    return edl;
+    return { ...edl, costs: edlCost ? [edlCost] : [] };
   });
 
   await setVideoStatus(videoId, "rendering");
