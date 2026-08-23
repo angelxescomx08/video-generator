@@ -3,7 +3,13 @@ import type { ScriptScene } from "@video-generator/ai-providers";
 import { db, themes, videos } from "@video-generator/db";
 import { resolveMusicProvider, type MusicProvider } from "@video-generator/music-providers";
 import { getBoss, QUEUES, videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
-import { buildFallbackEdl, defaultCaptionStyle, type EDLScene, type EditDecisionList } from "@video-generator/types";
+import {
+  buildFallbackEdl,
+  defaultCaptionStyle,
+  deriveYoutubeAudioSuggestion,
+  type EDLScene,
+  type EditDecisionList,
+} from "@video-generator/types";
 import type { CostItem, MusicTrackRef, StockClipRef } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import path from "node:path";
@@ -221,6 +227,17 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
     // El estilo lo decide el worker, no el LLM: el modelo no conoce las safe zones de YouTube ni los
     // requisitos de contraste, y devolvia cosas como fuente de 42px (ilegible en un movil).
     edl.captions.style = defaultCaptionStyle(video.format);
+
+    // Sugerencia de busqueda para la Biblioteca de audio de YouTube. Si el LLM no la devolvio (o
+    // devolvio valores que no existen como filtro, que el schema del EDL ya descarta), se deriva de
+    // las etiquetas libres — asi la pantalla del video nunca queda sin sugerencia.
+    if (!edl.audio.youtubeAudioLibrary) {
+      edl.audio.youtubeAudioLibrary = deriveYoutubeAudioSuggestion(edl.audio.musicSuggestionTags ?? []);
+      logger.info(`Sugerencia de Biblioteca de audio derivada para video ${videoId}`, {
+        from: edl.audio.musicSuggestionTags,
+        suggestion: edl.audio.youtubeAudioLibrary,
+      });
+    }
 
     const musicProvider = await resolveMusicProvider();
     if (musicProvider) {

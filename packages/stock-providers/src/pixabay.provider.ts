@@ -16,6 +16,7 @@ interface PixabayVideoHit {
     medium: { url: string; width: number; height: number };
   };
   duration: number;
+  user?: string;
 }
 
 interface PixabayImageHit {
@@ -25,6 +26,7 @@ interface PixabayImageHit {
   largeImageURL: string;
   imageWidth: number;
   imageHeight: number;
+  user?: string;
 }
 
 function matchesOrientation(width: number, height: number, orientation?: string): boolean {
@@ -60,7 +62,11 @@ export class PixabayProvider implements StockFootageProvider {
           width: hit.videos.medium.width,
           height: hit.videos.medium.height,
           durationSeconds: hit.duration,
-          attribution: `Video by Pixabay (${hit.pageURL})`,
+          authorName: hit.user,
+          // Pixabay no exige credito; se guarda igual para poder acreditar voluntariamente.
+          attribution: hit.user
+            ? `Video by ${hit.user} on Pixabay (${hit.pageURL})`
+            : `Video on Pixabay (${hit.pageURL})`,
           cost: freeStockCost(this.name),
         }));
     }
@@ -79,7 +85,10 @@ export class PixabayProvider implements StockFootageProvider {
         previewUrl: hit.pageURL,
         width: hit.imageWidth,
         height: hit.imageHeight,
-        attribution: `Image by Pixabay (${hit.pageURL})`,
+        authorName: hit.user,
+        attribution: hit.user
+          ? `Image by ${hit.user} on Pixabay (${hit.pageURL})`
+          : `Image on Pixabay (${hit.pageURL})`,
         cost: freeStockCost(this.name),
       }));
   }

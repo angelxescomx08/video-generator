@@ -8,6 +8,10 @@ const setDefaultSchema = z.object({
   providerName: z.string().min(1),
 });
 
+const setEnabledSchema = setDefaultSchema.extend({
+  isEnabled: z.boolean(),
+});
+
 export async function GET() {
   const rows = await db.select().from(providerConfigs);
   return NextResponse.json(rows);
@@ -44,6 +48,38 @@ export async function POST(request: Request) {
           .insert(providerConfigs)
           .values({ providerType: parsed.data.providerType, providerName: parsed.data.providerName, isDefault: true })
           .returning()
+      )[0];
+
+  return NextResponse.json(row);
+}
+
+/**
+ * Habilita/deshabilita un proveedor sin tocar cual es el predeterminado.
+ *
+ * Es lo que permite combinar varios bancos de stock a la vez (Pixabay + Pexels), a diferencia de
+ * POST que es exclusivo por tipo. `resolveStockProviders()` usa TODOS los habilitados.
+ */
+export async function PATCH(request: Request) {
+  const body = await request.json();
+  const parsed = setEnabledSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+
+  const { providerType, providerName, isEnabled } = parsed.data;
+
+  const existing = await db.query.providerConfigs.findFirst({
+    where: and(eq(providerConfigs.providerType, providerType), eq(providerConfigs.providerName, providerName)),
+  });
+
+  const row = existing
+    ? (
+        await db
+          .update(providerConfigs)
+          .set({ isEnabled, updatedAt: new Date() })
+          .where(eq(providerConfigs.id, existing.id))
+          .returning()
+      )[0]
+    : (
+        await db.insert(providerConfigs).values({ providerType, providerName, isEnabled }).returning()
       )[0];
 
   return NextResponse.json(row);

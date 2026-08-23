@@ -1,12 +1,16 @@
 import { db, providerConfigs } from "@/lib/db";
-import { eq } from "drizzle-orm";
 import { ProviderSettingsPanel } from "@/components/provider-settings-panel";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProvidersSettingsPage() {
-  const rows = await db.select().from(providerConfigs).where(eq(providerConfigs.isDefault, true));
-  const currentDefaults = Object.fromEntries(rows.map((r) => [r.providerType, r.providerName]));
+  const rows = await db.select().from(providerConfigs);
+
+  const currentDefaults = Object.fromEntries(
+    rows.filter((r) => r.isDefault).map((r) => [r.providerType, r.providerName]),
+  );
+  // Los tipos multi-seleccion (stock) necesitan saber cada fila habilitada, no solo el default.
+  const enabled = rows.filter((r) => r.isEnabled).map((r) => `${r.providerType}:${r.providerName}`);
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -17,7 +21,7 @@ export default async function ProvidersSettingsPage() {
           de pago requieren su API key en .env.
         </p>
       </div>
-      <ProviderSettingsPanel currentDefaults={currentDefaults} />
+      <ProviderSettingsPanel currentDefaults={currentDefaults} initialEnabled={enabled} />
     </div>
   );
 }

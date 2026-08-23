@@ -6,7 +6,10 @@ import { FeedbackForm } from "@/components/feedback-form";
 import { PublishPanel } from "@/components/publish-panel";
 import { VideoVersionsPanel } from "@/components/video-versions-panel";
 import { CostPanel } from "@/components/cost-panel";
+import { AttributionPanel } from "@/components/attribution-panel";
+import { AudioLibraryPanel } from "@/components/audio-library-panel";
 import { DeleteVideoButton } from "@/components/delete-video-button";
+import type { EditDecisionList } from "@video-generator/types";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +33,12 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
       <VideoStatusPanel initialVideo={video} />
 
       <VideoVersionsPanel videoId={video.id} />
+
+      <AudioLibraryPanel
+        suggestion={(video.edl as EditDecisionList | null)?.audio?.youtubeAudioLibrary ?? null}
+      />
+
+      <AttributionPanel sceneClips={video.sceneClips as React.ComponentProps<typeof AttributionPanel>["sceneClips"]} />
 
       <CostPanel videoId={video.id} />
 

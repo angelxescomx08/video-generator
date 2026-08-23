@@ -1,6 +1,7 @@
 import { loadEnv } from "@video-generator/config";
 import { db, providerConfigs } from "@video-generator/db";
 import { and, eq } from "drizzle-orm";
+import { isMonetizationSafe, STOCK_LICENSES } from "./licensing";
 import { PexelsProvider } from "./pexels.provider";
 import { PixabayProvider } from "./pixabay.provider";
 import { ShutterstockProvider } from "./shutterstock.provider";
@@ -44,21 +45,37 @@ export async function resolveProvider(name: StockProviderName): Promise<StockFoo
 }
 
 /**
- * All enabled stock providers at once (default: Pixabay + Pexels together for footage variety).
- * Configure/enable via the `provider_configs` table (provider_type='stock').
+ * Todos los proveedores de stock habilitados a la vez (por defecto Pixabay + Pexels juntos, para
+ * tener variedad de material). Se habilitan/deshabilitan en la tabla `provider_configs`
+ * (provider_type='stock'), y se pueden combinar libremente.
+ *
+ * Dos filtros deliberados, en este orden:
+ *
+ * 1. **Licencia**: se descarta cualquier proveedor que no sea seguro para monetizar (ver
+ *    licensing.ts). Shutterstock/Storyblocks exigen comprar licencia por clip o suscripcion, y
+ *    este repo no implementa esa compra — dejarlos entrar meteria material no monetizable.
+ * 2. **Credenciales**: si a un proveedor le falta su API key se salta con un aviso, en vez de
+ *    tumbar la generacion. Asi habilitar dos proveedores y tener la key de solo uno sigue
+ *    produciendo video.
  */
 export async function resolveStockProviders(): Promise<StockFootageProvider[]> {
   const enabledRows = await db.query.providerConfigs.findMany({
     where: and(eq(providerConfigs.providerType, "stock"), eq(providerConfigs.isEnabled, true)),
   });
 
-  const names: StockProviderName[] =
+  const requested: StockProviderName[] =
     enabledRows.length > 0
       ? (enabledRows.map((r) => r.providerName) as StockProviderName[])
       : ["pixabay", "pexels"];
 
   const providers: StockFootageProvider[] = [];
-  for (const name of names) {
+  for (const name of requested) {
+    if (!isMonetizationSafe(name)) {
+      console.warn(
+        `Stock provider "${name}" omitido: ${STOCK_LICENSES[name]?.notes ?? "licencia no apta para monetizar"}`,
+      );
+      continue;
+    }
     try {
       providers.push(instantiate(name));
     } catch (err) {

@@ -19,6 +19,7 @@ interface PexelsVideoHit {
   url: string;
   duration: number;
   video_files: PexelsVideoFile[];
+  user?: { name?: string };
 }
 
 interface PexelsPhotoHit {
@@ -27,10 +28,19 @@ interface PexelsPhotoHit {
   width: number;
   height: number;
   src: { large2x: string };
+  photographer?: string;
 }
 
 function pickBestVideoFile(files: PexelsVideoFile[]): PexelsVideoFile {
   return files.find((f) => f.quality === "hd") ?? files[0]!;
+}
+
+/**
+ * Los terminos de la API de Pexels exigen acreditar a Pexels Y al autor con un enlace visible
+ * (la descarga manual desde la web no lo pide, la API si). Por eso se guarda el nombre del autor.
+ */
+function pexelsCredit(kind: "Video" | "Photo", authorName: string | undefined, pageUrl: string): string {
+  return authorName ? `${kind} by ${authorName} on Pexels (${pageUrl})` : `${kind} on Pexels (${pageUrl})`;
 }
 
 /** Free stock footage/photos. Get a key at https://www.pexels.com/api/ */
@@ -62,7 +72,8 @@ export class PexelsProvider implements StockFootageProvider {
           width: file.width,
           height: file.height,
           durationSeconds: hit.duration,
-          attribution: `Video by Pexels (${hit.url})`,
+          authorName: hit.user?.name,
+          attribution: pexelsCredit("Video", hit.user?.name, hit.url),
           cost: freeStockCost(this.name),
         };
       });
@@ -82,7 +93,8 @@ export class PexelsProvider implements StockFootageProvider {
       previewUrl: hit.url,
       width: hit.width,
       height: hit.height,
-      attribution: `Photo by Pexels (${hit.url})`,
+      authorName: hit.photographer,
+      attribution: pexelsCredit("Photo", hit.photographer, hit.url),
       cost: freeStockCost(this.name),
     }));
   }

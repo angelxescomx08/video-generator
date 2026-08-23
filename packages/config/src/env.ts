@@ -19,7 +19,7 @@ const envSchema = z.object({
   GEMINI_MODEL: z.string().default("gemini-flash-latest"),
 
   ANTHROPIC_API_KEY: z.string().optional(),
-  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-5"),
+  ANTHROPIC_MODEL: z.string().default("claude-sonnet-5"),
 
   TTS_PROVIDER: z.enum(["piper", "coqui", "elevenlabs", "azure", "google"]).default("piper"),
   TTS_BASE_URL: z.string().url().default("http://localhost:5002"),

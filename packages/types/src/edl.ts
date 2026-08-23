@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { youtubeAudioSuggestionSchema } from "./youtube-audio-library";
 
 export const sceneEffectSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("none") }),
@@ -90,6 +91,13 @@ export const editDecisionListSchema = z.object({
     /** Tags de mood/genero en ingles sugeridos por la IA para buscar musica libre de copyright
      * que encaje con el tono del video (ver EDL_JSON_INSTRUCTIONS / prompts de cada AIProvider). */
     musicSuggestionTags: z.array(z.string()).optional(),
+    /**
+     * Sugerencia acotada a los filtros REALES de la Biblioteca de audio de YouTube Studio, para
+     * que el usuario pueda buscar musica ahi al editar el video. A diferencia de
+     * `musicSuggestionTags` (texto libre para APIs tipo Jamendo), aqui solo caben valores que
+     * existen como filtro en YouTube — ver youtube-audio-library.ts.
+     */
+    youtubeAudioLibrary: youtubeAudioSuggestionSchema.optional(),
   }),
   captions: z.object({
     enabled: z.boolean().default(false),

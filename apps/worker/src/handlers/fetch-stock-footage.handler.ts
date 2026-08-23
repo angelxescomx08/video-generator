@@ -1,7 +1,7 @@
 import type { ScriptScene } from "@video-generator/ai-providers";
 import { db, videos } from "@video-generator/db";
 import { getBoss, QUEUES, videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
-import { resolveStockProviders, type StockFootageProvider } from "@video-generator/stock-providers";
+import { requiresAttribution, resolveStockProviders, type StockFootageProvider } from "@video-generator/stock-providers";
 import type { CostItem, ProviderCost, StockClipRef } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import path from "node:path";
@@ -20,37 +20,94 @@ interface SceneClip {
  * ni las keywords originales ni cada una por separado devolvieron resultados. */
 const GENERIC_FALLBACK_KEYWORDS = ["nature background", "abstract texture", "city aerial", "clouds sky"];
 
-/** Prueba las keywords originales, luego cada una por separado (mas laxo que el join completo),
- * y por ultimo terminos genericos — para no tumbar el video entero por una escena sin match. */
-async function findSceneClip(
+interface ClipCandidate {
+  clip: StockClipRef;
+  provider: StockFootageProvider;
+}
+
+/** Cuantos candidatos juntar por escena antes de empezar a descargar. >1 permite que si la descarga
+ * de uno falla (404, red, rate limit) se intente con otro sin tumbar la generacion. */
+const CANDIDATES_PER_SCENE = 3;
+/** Maximo de clips que se toman de un mismo proveedor, para que los candidatos abarquen varios. */
+const MAX_PER_PROVIDER = 2;
+
+/**
+ * Rota el orden de los proveedores segun la escena.
+ *
+ * Sin esto, con Pixabay + Pexels habilitados el bucle probaba siempre Pixabay primero y, como casi
+ * siempre devuelve algo, Pexels practicamente nunca aportaba material: habilitar dos proveedores no
+ * daba ninguna variedad real. Rotando, la escena 1 arranca por Pixabay, la 2 por Pexels, etc.
+ */
+function rotate<T>(items: T[], offset: number): T[] {
+  if (items.length <= 1) return items;
+  const shift = ((offset % items.length) + items.length) % items.length;
+  return [...items.slice(shift), ...items.slice(0, shift)];
+}
+
+/**
+ * Junta varios candidatos para una escena, en orden de preferencia, combinando proveedores.
+ *
+ * Prueba las keywords originales, luego cada una por separado (mas laxo que el join completo), y por
+ * ultimo terminos genericos — para no tumbar el video entero por una escena sin match. Un proveedor
+ * que falle en la busqueda solo se salta: los demas siguen aportando.
+ */
+async function findSceneCandidates(
   providers: StockFootageProvider[],
   scene: ScriptScene,
   orientation: "landscape" | "portrait",
-): Promise<{ clip: StockClipRef; provider: StockFootageProvider } | null> {
+): Promise<ClipCandidate[]> {
   const queryVariants: string[][] = [
     scene.visualKeywords,
     ...scene.visualKeywords.map((kw) => [kw]),
     ...GENERIC_FALLBACK_KEYWORDS.map((kw) => [kw]),
   ];
+  const ordered = rotate(providers, scene.index);
 
   for (let i = 0; i < queryVariants.length; i++) {
     const keywords = queryVariants[i]!;
-    for (const provider of providers) {
+    const candidates: ClipCandidate[] = [];
+
+    for (const provider of ordered) {
       try {
         const results = await provider.search({ keywords, mediaType: "video", orientation, perPage: 5 });
-        if (results[0]) {
-          if (i > 0) {
-            logger.warn(
-              `Scene ${scene.index}: sin resultados para "${scene.visualKeywords.join(", ")}", usando fallback "${keywords.join(" ")}" en ${provider.name}`,
-            );
-          }
-          return { clip: results[0], provider };
-        }
+        for (const clip of results.slice(0, MAX_PER_PROVIDER)) candidates.push({ clip, provider });
       } catch (err) {
-        logger.warn(`Stock search failed on ${provider.name} for scene ${scene.index}`, {
+        logger.warn(`Busqueda de stock fallida en ${provider.name} para escena ${scene.index}`, {
           error: (err as Error).message,
         });
       }
+      if (candidates.length >= CANDIDATES_PER_SCENE) break;
+    }
+
+    if (candidates.length > 0) {
+      if (i > 0) {
+        logger.warn(
+          `Escena ${scene.index}: sin resultados para "${scene.visualKeywords.join(", ")}", usando fallback "${keywords.join(" ")}"`,
+        );
+      }
+      return candidates;
+    }
+  }
+  return [];
+}
+
+/** Descarga el primer candidato que funcione; si uno falla, sigue con el siguiente proveedor/clip. */
+async function downloadFirstWorkingCandidate(
+  candidates: ClipCandidate[],
+  scene: ScriptScene,
+  workspace: string,
+): Promise<SceneClip | null> {
+  for (const candidate of candidates) {
+    const ext = candidate.clip.mediaType === "video" ? "mp4" : "jpg";
+    const localPath = path.join(workspace, `scene-${scene.index}-clip.${ext}`);
+    try {
+      await candidate.provider.download(candidate.clip, localPath);
+      return { sceneIndex: scene.index, clip: candidate.clip, localPath };
+    } catch (err) {
+      logger.warn(
+        `Descarga fallida en ${candidate.provider.name} para escena ${scene.index}, probando siguiente candidato`,
+        { error: (err as Error).message },
+      );
     }
   }
   return null;
@@ -75,37 +132,59 @@ export async function handleFetchStockFootage(payload: VideoJobPayload): Promise
     const clipCosts: ProviderCost[] = [];
 
     for (const scene of scenes) {
-      const bestClip = await findSceneClip(providers, scene, orientation);
-
-      if (!bestClip) {
+      const candidates = await findSceneCandidates(providers, scene, orientation);
+      if (candidates.length === 0) {
         throw new Error(
           `No stock footage found for scene ${scene.index} (keywords: ${scene.visualKeywords.join(", ")}), ni siquiera con los fallbacks genericos`,
         );
       }
 
-      const ext = bestClip.clip.mediaType === "video" ? "mp4" : "jpg";
-      const localPath = path.join(workspace, `scene-${scene.index}-clip.${ext}`);
-      await bestClip.provider.download(bestClip.clip, localPath);
+      const downloaded = await downloadFirstWorkingCandidate(candidates, scene, workspace);
+      if (!downloaded) {
+        throw new Error(
+          `Ningun candidato se pudo descargar para la escena ${scene.index} (${candidates.length} intentos en ${new Set(candidates.map((c) => c.provider.name)).size} proveedores)`,
+        );
+      }
 
-      sceneClips.push({ sceneIndex: scene.index, clip: bestClip.clip, localPath });
+      sceneClips.push(downloaded);
       clipCosts.push(
-        bestClip.clip.cost ?? { providerType: "stock", providerName: bestClip.provider.name, isFree: true, isLocal: false, amountUsd: 0 },
+        downloaded.clip.cost ?? {
+          providerType: "stock",
+          providerName: downloaded.clip.provider,
+          isFree: true,
+          isLocal: false,
+          amountUsd: 0,
+        },
       );
     }
 
     await db.update(videos).set({ sceneClips, updatedAt: new Date() }).where(eq(videos.id, videoId));
 
+    // Cuantas escenas aporto cada proveedor — es la forma de ver si la variedad esta funcionando.
+    const clipsByProvider = sceneClips.reduce<Record<string, number>>((acc, sc) => {
+      acc[sc.clip.provider] = (acc[sc.clip.provider] ?? 0) + 1;
+      return acc;
+    }, {});
+
     const stockCost: CostItem = {
       stage: "stock_footage",
       providerType: "stock",
-      providerName: clipCosts[0]?.providerName ?? "stock",
+      // Con varios proveedores en un mismo video, quedarse con el primero era enganoso.
+      providerName: Object.keys(clipsByProvider).sort().join(" + ") || "stock",
       isFree: clipCosts.every((c) => c.isFree),
       isLocal: clipCosts.every((c) => c.isLocal),
       amountUsd: clipCosts.reduce((sum, c) => sum + c.amountUsd, 0),
       detail: `${scenes.length} escenas`,
     };
 
-    logger.info(`Stock footage fetched for video ${videoId}`, { scenes: sceneClips.length });
+    const needsCredit = [...new Set(sceneClips.map((sc) => sc.clip.provider))].filter(requiresAttribution);
+    if (needsCredit.length > 0) {
+      logger.info(
+        `Video ${videoId} usa material que EXIGE atribucion (${needsCredit.join(", ")}) — los creditos estan en la pagina del video`,
+      );
+    }
+
+    logger.info(`Stock footage fetched for video ${videoId}`, { scenes: sceneClips.length, clipsByProvider });
     return { sceneClips, costs: [stockCost] };
   });
 

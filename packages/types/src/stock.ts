@@ -17,6 +17,9 @@ export interface StockClipRef {
   width: number;
   height: number;
   durationSeconds?: number;
+  /** Autor del material. Necesario para acreditar cuando la licencia lo exige (ej. API de Pexels). */
+  authorName?: string;
+  /** Linea de credito ya armada, lista para pegar en la descripcion del video. */
   attribution?: string;
   cost?: ProviderCost;
 }
