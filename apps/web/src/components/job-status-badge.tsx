@@ -63,25 +63,8 @@ export function VideoStatusPanel({ initialVideo }: { initialVideo: Video }) {
 
       {video.errorMessage && <p className="text-sm text-destructive">{video.errorMessage}</p>}
 
-      {video.description && (
-        <div className="space-y-1">
-          <h3 className="font-semibold">Descripcion (YouTube)</h3>
-          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{video.description}</p>
-        </div>
-      )}
-
-      {video.tags && video.tags.length > 0 && (
-        <div className="space-y-1">
-          <h3 className="font-semibold">Tags</h3>
-          <div className="flex flex-wrap gap-1">
-            {video.tags.map((tag) => (
-              <Badge key={tag} variant="secondary">
-                {tag}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Titulo, descripcion y tags viven en YoutubeMetadataPanel (seccion "Metadata para YouTube"),
+          que ademas muestra los limites de caracteres y que parte se ve en el feed. */}
 
       {video.script && (
         <div className="space-y-1">

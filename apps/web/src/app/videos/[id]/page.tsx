@@ -9,6 +9,7 @@ import { VideoVersionsPanel } from "@/components/video-versions-panel";
 import { CostPanel } from "@/components/cost-panel";
 import { AttributionPanel } from "@/components/attribution-panel";
 import { AudioLibraryPanel } from "@/components/audio-library-panel";
+import { YoutubeMetadataPanel } from "@/components/youtube-metadata-panel";
 import { DeleteVideoButton } from "@/components/delete-video-button";
 import type { EditDecisionList } from "@video-generator/types";
 
@@ -40,7 +41,17 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
       {/* 1. Estado — el loader y el guion/descripcion generados */}
       <VideoStatusPanel initialVideo={video} />
 
-      {/* 2. Edicion — lo que se puede cambiar sin regenerar, y el historial de versiones */}
+      {/* 2. Metadata — los campos que se suben a YouTube, con sus limites reales */}
+      <Section title="Metadata para YouTube">
+        <YoutubeMetadataPanel
+          title={video.title}
+          description={video.description}
+          tags={video.tags}
+          format={video.format}
+        />
+      </Section>
+
+      {/* 3. Edicion — lo que se puede cambiar sin regenerar, y el historial de versiones */}
       <Section
         title="Edicion"
         description="Ajustes que solo re-renderizan el video, sin volver a gastar en IA ni en voz."
