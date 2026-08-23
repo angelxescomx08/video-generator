@@ -53,6 +53,9 @@ const envSchema = z.object({
 
   RENDER_OUTPUT_DIR: z.string().default("./data/renders"),
   WORKER_TMP_DIR: z.string().default("./data/tmp"),
+  /** Canciones subidas por el usuario. apps/web escribe aqui al subir y apps/worker lee al
+   * renderizar, asi que igual que los otros dos debe ser una ruta ABSOLUTA compartida. */
+  MUSIC_LIBRARY_DIR: z.string().default("./data/music"),
   FFMPEG_PATH: z.string().optional(),
   FFPROBE_PATH: z.string().optional(),
 });

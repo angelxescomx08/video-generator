@@ -88,6 +88,10 @@ export const editDecisionListSchema = z.object({
     voiceoverPath: z.string(),
     backgroundMusicPath: z.string().optional(),
     backgroundMusicVolumeDb: z.number().optional(),
+    /** Id en `music_tracks` si la musica es una cancion subida por el usuario (no de un banco). */
+    backgroundMusicTrackId: z.string().uuid().optional(),
+    /** Titulo legible de la pista, para mostrarlo en la lista de versiones sin otra consulta. */
+    backgroundMusicLabel: z.string().optional(),
     /** Tags de mood/genero en ingles sugeridos por la IA para buscar musica libre de copyright
      * que encaje con el tono del video (ver EDL_JSON_INSTRUCTIONS / prompts de cada AIProvider). */
     musicSuggestionTags: z.array(z.string()).optional(),

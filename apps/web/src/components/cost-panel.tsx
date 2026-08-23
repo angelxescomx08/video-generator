@@ -1,33 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import type { VideoVersion } from "@video-generator/db";
-import type { CostItem, CostStage } from "@video-generator/types";
+import type { CostStage } from "@video-generator/types";
+import {
+  formatMxn,
+  formatUsd,
+  STAGE_LABELS,
+  summarizeVersionCosts,
+  type VersionLike,
+} from "@/lib/version-costs";
 
-type VersionWithCost = VideoVersion & {
-  isCurrent: boolean;
-  costBreakdown: CostItem[] | null;
-  costTotalUsd: string | null;
-  costTotalMxn: string | null;
-  exchangeRateUsed: string | null;
-};
+type VersionWithCost = VersionLike & { isCurrent: boolean };
 
-const STAGE_LABELS: Record<CostStage, string> = {
-  script: "Guion (IA)",
-  edl: "Edicion (IA)",
-  tts: "Voz",
-  stock_footage: "Video (stock)",
-  render: "Render",
-};
-
-function formatUsd(amount: number): string {
-  return `$${amount.toFixed(amount < 1 ? 4 : 2)}`;
-}
-
-function formatMxn(amount: number): string {
-  return `$${amount.toFixed(2)} MXN`;
-}
+const FALLBACK_RATE = 18.5;
 
 export function CostPanel({ videoId }: { videoId: string }) {
   const [versions, setVersions] = useState<VersionWithCost[] | null>(null);
@@ -40,63 +25,70 @@ export function CostPanel({ videoId }: { videoId: string }) {
 
   if (!versions || versions.length === 0) return null;
 
-  const totalUsd = versions.reduce((sum, v) => sum + Number(v.costTotalUsd ?? 0), 0);
-  const totalMxn = versions.reduce((sum, v) => sum + Number(v.costTotalMxn ?? 0), 0);
+  const { perVersion, totalUsd, totalMxn, totalSavedUsd } = summarizeVersionCosts(versions, FALLBACK_RATE);
+
+  // Total gastado por etapa a lo largo de TODAS las versiones: responde "en que se fue el dinero".
+  const byStage = new Map<CostStage, number>();
+  for (const version of perVersion) {
+    for (const item of version.items) {
+      byStage.set(item.stage, (byStage.get(item.stage) ?? 0) + item.amountUsd);
+    }
+  }
+  const stageRows = [...byStage.entries()].filter(([, usd]) => usd > 0).sort((a, b) => b[1] - a[1]);
+  const rate = totalUsd > 0 ? totalMxn / totalUsd : FALLBACK_RATE;
 
   return (
-    <div className="space-y-3">
-      <h3 className="font-semibold">Costo de generacion</h3>
-      <div className="rounded-md border border-border p-3">
-        <p className="text-sm text-muted-foreground">Costo total (todas las versiones)</p>
-        <p className="text-lg font-semibold">
-          {formatUsd(totalUsd)} USD · {formatMxn(totalMxn)}
+    <section className="space-y-3">
+      <div>
+        <h3 className="font-semibold">Costo de produccion</h3>
+        <p className="text-sm text-muted-foreground">
+          Suma de todas las versiones. El detalle de cada una esta en su tarjeta, arriba.
         </p>
       </div>
 
-      <ul className="space-y-2">
-        {versions.map((v) => (
-          <li key={v.id} className="rounded-md border border-border p-3 text-sm">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <span className="font-medium">
-                v{v.versionNumber}
-                {v.isCurrent && <Badge className="ml-2">Actual</Badge>}
-              </span>
-              <span className="font-medium">
-                {formatUsd(Number(v.costTotalUsd ?? 0))} · {formatMxn(Number(v.costTotalMxn ?? 0))}
-              </span>
+      <div className="rounded-md border border-border p-4">
+        <p className="text-xs text-muted-foreground">Total gastado en este video</p>
+        <p className="text-2xl font-semibold tabular-nums">{formatUsd(totalUsd)}</p>
+        <p className="text-sm text-muted-foreground tabular-nums">{formatMxn(totalMxn)}</p>
+        {totalSavedUsd > 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Se ahorraron <span className="font-medium text-foreground">{formatUsd(totalSavedUsd)}</span>{" "}
+            reutilizando guion, voz y clips entre versiones en vez de regenerarlos.
+          </p>
+        )}
+      </div>
+
+      {stageRows.length > 0 && (
+        <div className="space-y-1.5 rounded-md border border-border p-3">
+          <p className="text-xs font-medium">En que se gasto</p>
+          {stageRows.map(([stage, usd]) => (
+            <div key={stage} className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{STAGE_LABELS[stage] ?? stage}</span>
+                <span className="tabular-nums">
+                  {formatUsd(usd)} · {formatMxn(usd * rate)}
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary"
+                  style={{ width: `${totalUsd > 0 ? (usd / totalUsd) * 100 : 0}%` }}
+                />
+              </div>
             </div>
-            <ul className="space-y-1">
-              {(v.costBreakdown ?? []).map((item, i) => (
-                <li key={i} className="flex items-center justify-between text-muted-foreground">
-                  <span>
-                    {STAGE_LABELS[item.stage] ?? item.stage} — {item.providerName}
-                  </span>
-                  {item.isFree ? (
-                    <Badge variant="secondary">{item.isLocal ? "Gratis (local)" : "Gratis"}</Badge>
-                  ) : (
-                    <span>{formatUsd(item.amountUsd)}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-            {v.exchangeRateUsed && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Tipo de cambio usado: {Number(v.exchangeRateUsed).toFixed(2)} MXN/USD
-              </p>
-            )}
-          </li>
-        ))}
-      </ul>
+          ))}
+        </div>
+      )}
 
       <CostDisclaimer />
-    </div>
+    </section>
   );
 }
 
 /**
- * El desglose de arriba es un ESTIMADO, no una lectura de facturacion: ninguna de estas APIs
- * devuelve un costo. Decirlo explicitamente evita que estos numeros se tomen como la factura real,
- * sobre todo porque las capas gratuitas suelen dejar el cobro efectivo en cero.
+ * El desglose es un ESTIMADO, no una lectura de facturacion: ninguna de estas APIs devuelve un
+ * costo. Decirlo explicitamente evita que estos numeros se tomen como la factura real, sobre todo
+ * porque las capas gratuitas suelen dejar el cobro efectivo en cero.
  */
 function CostDisclaimer() {
   return (
@@ -127,8 +119,8 @@ function CostDisclaimer() {
           vivo. Se puede ajustar en Configuracion general.
         </li>
         <li>
-          Los montos guardados en cada version son una foto del momento en que se genero: actualizar la
-          tabla de precios no recalcula versiones anteriores.
+          Cada version guarda una foto del costo del momento: actualizar la tabla de precios no recalcula
+          versiones anteriores.
         </li>
       </ul>
     </details>

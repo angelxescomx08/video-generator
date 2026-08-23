@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/videos/new", label: "Nuevo video" },
   { href: "/themes", label: "Temas" },
+  { href: "/music", label: "Musica" },
   { href: "/analytics", label: "Analytics" },
   { href: "/settings/providers", label: "Proveedores" },
   { href: "/settings/accounts", label: "Cuentas" },

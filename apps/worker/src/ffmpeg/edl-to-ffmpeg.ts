@@ -1,4 +1,4 @@
-import type { EditDecisionList } from "@video-generator/types";
+import { DEFAULT_BACKGROUND_MUSIC_DB, type EditDecisionList } from "@video-generator/types";
 import { buildCaptionsFilter } from "./filters/captions";
 import { buildKenBurnsFilter } from "./filters/ken-burns";
 import { buildZoomPunchFilter } from "./filters/zoom-punch";
@@ -87,7 +87,7 @@ export function buildFfmpegArgs(edl: EditDecisionList, options: FfmpegBuildOptio
   if (options.backgroundMusicPath) {
     const musicInputIndex = voiceoverInputIndex + 1;
     args.push("-i", options.backgroundMusicPath);
-    const musicVolumeLinear = Math.pow(10, (edl.audio.backgroundMusicVolumeDb ?? -18) / 20);
+    const musicVolumeLinear = Math.pow(10, (edl.audio.backgroundMusicVolumeDb ?? DEFAULT_BACKGROUND_MUSIC_DB) / 20);
     filterParts.push(
       `[${musicInputIndex}:a]volume=${musicVolumeLinear},aloop=loop=-1:size=2e9[musicloop]`,
       `[${voiceoverInputIndex}:a][musicloop]amix=inputs=2:duration=first:dropout_transition=2[amixed]`,

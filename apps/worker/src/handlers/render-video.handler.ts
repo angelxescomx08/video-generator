@@ -8,6 +8,7 @@ import {
   DEFAULT_USD_TO_MXN_RATE,
 } from "@video-generator/db";
 import { videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
+import { access } from "node:fs/promises";
 import type { CostItem, EditDecisionList } from "@video-generator/types";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import path from "node:path";
@@ -121,9 +122,26 @@ export async function handleRenderVideo(payload: VideoJobPayload): Promise<void>
       }
     }
 
+    // La musica de fondo es un extra: si el archivo no esta donde dice el EDL (ruta relativa vieja,
+    // archivo borrado a mano, disco distinto), se renderiza SIN musica en vez de tumbar el video.
+    // Antes ffmpeg fallaba con ENOENT y se perdia toda la generacion por una cancion.
+    let backgroundMusicPath = edl.audio.backgroundMusicPath;
+    if (backgroundMusicPath) {
+      const musicExists = await access(backgroundMusicPath)
+        .then(() => true)
+        .catch(() => false);
+      if (!musicExists) {
+        logger.warn(
+          `La musica de fondo de video ${videoId} no existe en disco, se renderiza sin musica`,
+          { backgroundMusicPath },
+        );
+        backgroundMusicPath = undefined;
+      }
+    }
+
     const args = buildFfmpegArgs(edl, {
       assFilePath,
-      backgroundMusicPath: edl.audio.backgroundMusicPath,
+      backgroundMusicPath,
       outputPath,
     });
 

@@ -10,6 +10,9 @@ const TERMINAL_STATUSES = new Set(["ready", "published", "failed"]);
 
 export function VideoStatusPanel({ initialVideo }: { initialVideo: Video }) {
   const [video, setVideo] = useState(initialVideo);
+  // Si ya hay un render activo, lo que corre es solo un re-render (p.ej. cambio de musica): el
+  // guion, la voz y los clips ya estan hechos y no se vuelven a generar.
+  const renderOnly = Boolean(initialVideo.currentVersionId);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
 
@@ -42,7 +45,7 @@ export function VideoStatusPanel({ initialVideo }: { initialVideo: Video }) {
 
   return (
     <div className="space-y-4">
-      <GenerationProgress status={video.status} />
+      <GenerationProgress status={video.status} renderOnly={renderOnly} />
 
       <div className="flex items-center gap-3">
         <Badge variant={statusVariant(video.status)}>{video.status}</Badge>
