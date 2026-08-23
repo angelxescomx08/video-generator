@@ -1,7 +1,7 @@
-import { db, feedback, videos } from "@/lib/db";
-import { enqueueVideoGeneration } from "@/lib/queue";
+import { db, feedback, videos, generationJobs } from "@/lib/db";
+import { enqueueVideoGeneration, enqueueVideoResume } from "@/lib/queue";
 import { regenerateVideoRequestSchema } from "@video-generator/types";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 const REGENERABLE_STATUSES = new Set(["ready", "failed", "published"]);
@@ -37,6 +37,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     })
     .where(eq(videos.id, id))
     .returning();
+
+  // Sin feedback nuevo: si fallo a medio pipeline, reanuda en ese stage en vez de rehacer
+  // guion/tts/etc ya completados (evita gastar cuota de IA/TTS de nuevo).
+  if (!parsed.data.feedbackId && video.status === "failed") {
+    const [lastFailedJob] = await db
+      .select({ jobType: generationJobs.jobType })
+      .from(generationJobs)
+      .where(and(eq(generationJobs.videoId, id), eq(generationJobs.status, "failed")))
+      .orderBy(desc(generationJobs.createdAt))
+      .limit(1);
+
+    if (lastFailedJob) {
+      await enqueueVideoResume(id, lastFailedJob.jobType);
+      return NextResponse.json(updated);
+    }
+  }
 
   await enqueueVideoGeneration(id);
 

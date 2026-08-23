@@ -61,6 +61,30 @@ function parseJsonLenient(text: string): unknown {
   return JSON.parse(cleaned);
 }
 
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+const MAX_RETRIES = 4;
+const BASE_DELAY_MS = 1000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Gemini responde 503 "UNAVAILABLE" con frecuencia por sobrecarga del modelo, no por un error
+ * del request. Reintenta con backoff exponencial + jitter antes de rendirse.
+ */
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const response = await fetch(url, init);
+    if (response.ok || !RETRYABLE_STATUS_CODES.has(response.status) || attempt === MAX_RETRIES) {
+      return response;
+    }
+    const delay = BASE_DELAY_MS * 2 ** attempt + Math.random() * 500;
+    await sleep(delay);
+  }
+  throw new Error("unreachable");
+}
+
 /** Ready to activate via AI_PROVIDER=gemini + GOOGLE_GEMINI_API_KEY. */
 export class GeminiProvider implements AIProvider {
   readonly name = "gemini";
@@ -73,7 +97,7 @@ export class GeminiProvider implements AIProvider {
     responseSchema?: unknown,
   ): Promise<{ json: unknown; cost: ProviderCost }> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.options.model}:generateContent?key=${this.options.apiKey}`;
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -126,7 +150,7 @@ export class GeminiProvider implements AIProvider {
 
   async embed(req: EmbeddingRequest): Promise<AICallResult<number[]>> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${this.options.apiKey}`;
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: { parts: [{ text: req.text }] } }),

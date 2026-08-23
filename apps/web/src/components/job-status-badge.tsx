@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge, statusVariant } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { GenerationProgress } from "@/components/generation-progress";
 import type { Video } from "@video-generator/db";
 
@@ -9,6 +10,8 @@ const TERMINAL_STATUSES = new Set(["ready", "published", "failed"]);
 
 export function VideoStatusPanel({ initialVideo }: { initialVideo: Video }) {
   const [video, setVideo] = useState(initialVideo);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   useEffect(() => {
     if (TERMINAL_STATUSES.has(video.status)) return;
@@ -19,6 +22,24 @@ export function VideoStatusPanel({ initialVideo }: { initialVideo: Video }) {
     return () => clearInterval(interval);
   }, [video.status, video.id]);
 
+  async function onRetry() {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const response = await fetch(`/api/videos/${video.id}/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) throw new Error((await response.json()).error ?? "No se pudo reintentar");
+      setVideo(await response.json());
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <GenerationProgress status={video.status} />
@@ -28,7 +49,14 @@ export function VideoStatusPanel({ initialVideo }: { initialVideo: Video }) {
         {!TERMINAL_STATUSES.has(video.status) && (
           <span className="text-sm text-muted-foreground">Actualizando automaticamente...</span>
         )}
+        {video.status === "failed" && (
+          <Button type="button" size="sm" variant="outline" disabled={retrying} onClick={onRetry}>
+            {retrying ? "Reintentando..." : "Reintentar"}
+          </Button>
+        )}
       </div>
+
+      {retryError && <p className="text-sm text-destructive">{retryError}</p>}
 
       {video.errorMessage && <p className="text-sm text-destructive">{video.errorMessage}</p>}
 

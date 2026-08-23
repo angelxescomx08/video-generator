@@ -14,7 +14,7 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
   const [format, setFormat] = useState<"long" | "short">("short");
   const [topic, setTopic] = useState("");
   const [captionsEnabled, setCaptionsEnabled] = useState(false);
-  const [durationSeconds, setDurationSeconds] = useState(90);
+  const [durationSeconds, setDurationSeconds] = useState(140);
   const idea = topic.trim();
   const maxDuration = format === "short" ? 180 : 1800;
   const [submitting, setSubmitting] = useState(false);
