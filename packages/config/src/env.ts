@@ -54,6 +54,7 @@ const envSchema = z.object({
   RENDER_OUTPUT_DIR: z.string().default("./data/renders"),
   WORKER_TMP_DIR: z.string().default("./data/tmp"),
   FFMPEG_PATH: z.string().optional(),
+  FFPROBE_PATH: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

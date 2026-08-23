@@ -8,7 +8,7 @@ import { getAvoidFacts, getRecentFeedback, retrieveMemoryContext } from "../memo
 const REPEATABLE_FACT_TYPES = ["bible_verse_used", "quote_used", "title_used"] as const;
 
 /** Palabras por minuto de narracion en espanol (ritmo natural, ni lento ni atropellado). */
-const WORDS_PER_MINUTE = 150;
+export const WORDS_PER_MINUTE = 150;
 
 export async function buildScriptGenerationRequest(
   theme: Theme,
@@ -43,23 +43,35 @@ export async function buildScriptGenerationRequest(
   };
 }
 
+/** Rango de palabras aceptable para un guion, dado el target en segundos. Comparten esta formula
+ * el prompt (buildStyleGuide) y el recorte deterministico post-generacion (clampScenesToWordBudget)
+ * para que ambos midan "se paso" con el mismo criterio. */
+export function computeWordBudget(targetDurationSeconds: number): { targetWords: number; minWords: number; maxWords: number } {
+  const targetWords = Math.round((targetDurationSeconds / 60) * WORDS_PER_MINUTE);
+  return {
+    targetWords,
+    minWords: Math.round(targetWords * 0.9),
+    maxWords: Math.round(targetWords * 1.1),
+  };
+}
+
 /**
  * Guia de tono/estilo + refuerzo de duracion. El refuerzo de duracion es clave: sin un objetivo de
  * palabras/escenas explicito, el LLM tiende a devolver guiones demasiado cortos y superficiales
- * (p.ej. 28s cuando se pidieron 90). Convertimos los segundos objetivo en un rango de palabras y de
- * escenas concreto para que llene realmente la duracion.
+ * (p.ej. 28s cuando se pidieron 90) o, si se le pide mucho, a pasarse de largo (p.ej. 211s cuando se
+ * pidieron 140). Convertimos los segundos objetivo en un rango de palabras y de escenas concreto, y
+ * remarcamos que pasarse del maximo es tan incorrecto como quedarse corto (hay un recorte automatico
+ * despues si no se respeta, que corta la historia de forma abrupta).
  */
 function buildStyleGuide(targetDurationSeconds: number, format: "long" | "short"): string {
-  const targetWords = Math.round((targetDurationSeconds / 60) * WORDS_PER_MINUTE);
-  const minWords = Math.round(targetWords * 0.9);
-  const maxWords = Math.round(targetWords * 1.15);
+  const { minWords, maxWords } = computeWordBudget(targetDurationSeconds);
   const sceneCount = Math.max(3, Math.round(targetDurationSeconds / 10));
 
-  const durationBlock = `DURACION Y EXTENSION (obligatorio):
+  const durationBlock = `DURACION Y EXTENSION (obligatorio, se valida automaticamente):
 - El guion debe durar aproximadamente ${targetDurationSeconds} segundos al narrarse en voz alta.
-- A ~${WORDS_PER_MINUTE} palabras/minuto, eso equivale a entre ${minWords} y ${maxWords} palabras de narracion. NO te quedes corto.
+- A ~${WORDS_PER_MINUTE} palabras/minuto, eso equivale a ENTRE ${minWords} Y ${maxWords} palabras de narracion en total (suma de todas las escenas). Este es un rango estricto: pasarte de ${maxWords} palabras es tan incorrecto como quedarte corto de ${minWords} — si te pasas, el sistema recorta el guion automaticamente y corta la historia a la mitad, así que cuenta tus palabras mientras escribes.
 - Divide la narracion en unas ${sceneCount} escenas (aprox. 8-12s cada una), cada una con su narrationText.
-- Usa TODO el tiempo disponible para desarrollar la historia: contexto, desarrollo, tension y cierre. Nada de resumenes superficiales.`;
+- Con ese presupuesto de palabras, cuenta una historia completa pero compacta: ve directo al punto en cada escena, sin relleno ni descripciones largas. Prioriza que quepan planteamiento, desarrollo y cierre dentro del limite antes que desarrollar cada parte a fondo.`;
 
   return `${SCRIPT_TONE_GUIDE}\n\n${durationBlock}\n\n${buildSeoGuide(format)}`;
 }

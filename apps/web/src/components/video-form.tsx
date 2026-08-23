@@ -13,8 +13,8 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
   const [themeId, setThemeId] = useState(themes[0]?.id ?? "");
   const [format, setFormat] = useState<"long" | "short">("short");
   const [topic, setTopic] = useState("");
-  const [captionsEnabled, setCaptionsEnabled] = useState(false);
-  const [durationSeconds, setDurationSeconds] = useState(140);
+  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const [durationSeconds, setDurationSeconds] = useState(90);
   const idea = topic.trim();
   const maxDuration = format === "short" ? 180 : 1800;
   const [submitting, setSubmitting] = useState(false);
@@ -101,20 +101,48 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
         </p>
       </div>
 
-      <div className="flex items-start gap-2">
-        <input
-          id="captions"
-          type="checkbox"
-          checked={captionsEnabled}
-          onChange={(e) => setCaptionsEnabled(e.target.checked)}
-          className="mt-1 h-4 w-4 rounded border-border"
-        />
-        <div className="space-y-1">
-          <Label htmlFor="captions">Subtitulos</Label>
-          <p className="text-xs text-muted-foreground">
-            Desactivados por defecto. Actívalos para quemar los subtitulos en el video.
-          </p>
+      <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+        <h3 className="text-sm font-semibold">Subtitulos</h3>
+
+        <div className="flex items-start gap-2">
+          <input
+            id="captions"
+            type="checkbox"
+            checked={captionsEnabled}
+            onChange={(e) => setCaptionsEnabled(e.target.checked)}
+            className="mt-1 h-4 w-4 rounded border-border"
+          />
+          <div className="space-y-1">
+            <Label htmlFor="captions">Quemar subtitulos en el video</Label>
+            <p className="text-xs text-muted-foreground">
+              Transcripcion de la narracion, sincronizada palabra por palabra con la voz.
+            </p>
+          </div>
         </div>
+
+        {captionsEnabled && (
+          <ul className="space-y-1 border-t border-border pt-3 text-xs text-muted-foreground">
+            <li>
+              <span className="font-medium text-foreground">Estilo:</span> texto blanco en negrita con
+              contorno negro grueso, para que se lea sobre cualquier fondo (claro u oscuro).
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Resalte:</span> la palabra que se esta
+              pronunciando se enciende en amarillo.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Posicion:</span>{" "}
+              {format === "short"
+                ? "por encima de los 450px inferiores que YouTube tapa con el titulo, el canal y el boton de suscribirse, y fuera de la columna de botones de la derecha."
+                : "cerca del borde inferior, libre de la barra de controles del reproductor."}
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Ritmo:</span>{" "}
+              {format === "short" ? "bloques de 2 a 4 palabras" : "bloques de hasta 8 palabras"}, que
+              cambian al ritmo del habla.
+            </li>
+          </ul>
+        )}
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}

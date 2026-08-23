@@ -5,6 +5,7 @@ import { resolveProvider } from "@video-generator/tts-providers";
 import type { CostItem, ProviderCost } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import path from "node:path";
+import { probeDurationSeconds } from "../ffmpeg/probe";
 import { runStage, setVideoStatus } from "../pipeline/orchestrator";
 import { STAGES } from "../pipeline/stage-context";
 import { getJobWorkspace } from "../util/tmp-workspace";
@@ -38,10 +39,16 @@ export async function handleGenerateTts(payload: VideoJobPayload): Promise<void>
         voiceId: theme?.defaultVoiceId ?? undefined,
         destPath,
       });
+      // Google/ElevenLabs/Azure devuelven durationSeconds: 0 (solo Piper/Coqui la sacan del header
+      // WAV). Medirla aqui es obligatorio: es el unico timing real del pipeline — de el dependen la
+      // duracion de cada escena, la sincronia de los subtitulos y la duracion final del video.
+      const durationSeconds =
+        result.durationSeconds > 0 ? result.durationSeconds : await probeDurationSeconds(result.audioFilePath);
+
       sceneAudio.push({
         sceneIndex: scene.index,
         audioFilePath: result.audioFilePath,
-        durationSeconds: result.durationSeconds,
+        durationSeconds,
       });
       sceneCosts.push(result.cost);
     }
@@ -61,7 +68,10 @@ export async function handleGenerateTts(payload: VideoJobPayload): Promise<void>
       detail: `${scenes.length} escenas`,
     };
 
-    logger.info(`TTS generated for video ${videoId}`, { scenes: sceneAudio.length });
+    logger.info(`TTS generated for video ${videoId}`, {
+      scenes: sceneAudio.length,
+      totalDurationSeconds: Math.round(sceneAudio.reduce((sum, s) => sum + s.durationSeconds, 0)),
+    });
     return { sceneAudio, costs: [ttsCost] };
   });
 

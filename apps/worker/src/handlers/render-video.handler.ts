@@ -98,13 +98,27 @@ export async function handleRenderVideo(payload: VideoJobPayload): Promise<void>
     let assFilePath: string | undefined;
     if (edl.captions.enabled) {
       const { width, height } = resolutionForFormat(edl.format);
-      assFilePath = await buildAssSubtitleFile({
+      const subtitles = await buildAssSubtitleFile({
         scenes: edl.scenes,
         style: edl.captions.style,
+        format: edl.format,
         resolutionWidth: width,
         resolutionHeight: height,
         destPath: path.join(workspace, "captions.ass"),
       });
+
+      // Un .ass sin eventos no falla el render, pero produce un video sin subtitulos y sin ninguna
+      // señal de por que — avisar aqui es la diferencia entre "no salieron" y saber la causa.
+      if (subtitles.chunkCount === 0) {
+        logger.warn(`Subtitulos activados pero no se genero ningun bloque para video ${videoId}`, {
+          scenes: edl.scenes.length,
+          scenesWithCaptionText: edl.scenes.filter((s) => s.captionText).length,
+          scenesWithWordTimings: edl.scenes.filter((s) => s.captionWordTimings?.length).length,
+        });
+      } else {
+        assFilePath = subtitles.path;
+        logger.info(`Subtitulos generados para video ${videoId}`, { bloques: subtitles.chunkCount });
+      }
     }
 
     const args = buildFfmpegArgs(edl, {

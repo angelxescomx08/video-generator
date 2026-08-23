@@ -3,7 +3,7 @@ import type { ScriptScene } from "@video-generator/ai-providers";
 import { db, themes, videos } from "@video-generator/db";
 import { resolveMusicProvider, type MusicProvider } from "@video-generator/music-providers";
 import { getBoss, QUEUES, videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
-import { buildFallbackEdl, type EDLScene, type EditDecisionList } from "@video-generator/types";
+import { buildFallbackEdl, defaultCaptionStyle, type EDLScene, type EditDecisionList } from "@video-generator/types";
 import type { CostItem, MusicTrackRef, StockClipRef } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import path from "node:path";
@@ -30,32 +30,82 @@ interface SceneClip {
 const GENERIC_MUSIC_TAGS = ["cinematic", "ambient", "background", "calm"];
 
 /**
- * Las escenas del EDL (venga del LLM o del fallback deterministico) traen su propia idea de
- * startSeconds/durationSeconds, pero el unico timing real es el de sceneAudio (duracion medida
- * del TTS ya concatenado en voiceoverPath). Sin este ajuste, subtitulos y cortes de video pueden
- * desincronizarse de la narracion real en cuanto el LLM estima mal una escena.
+ * Reconstruye la linea de tiempo del EDL a partir del unico timing real del pipeline: la duracion
+ * MEDIDA de cada clip de TTS (sceneAudio, ya concatenado en voiceoverPath). El LLM solo vio
+ * duraciones estimadas del guion, asi que sin esto los cortes de video y los subtitulos se van de la
+ * narracion real.
+ *
+ * Ademas arregla dos desalineaciones que hacian que el subtitulo no correspondiera a lo que se
+ * escuchaba:
+ *
+ * 1. El LLM a veces numera las escenas del EDL desde 0 aunque el guion venga numerado desde 1 (o se
+ *    salta alguna). Emparejar por indice en ese caso descartaba escenas y corria TODO el resto una
+ *    escena respecto a la voz. Si los indices no cuadran, se empareja por POSICION.
+ * 2. El texto del subtitulo se toma del GUION (que va 1:1 con el audio por indice), no del EDL
+ *    devuelto por el LLM. Se usa `narrationText`, que es exactamente lo que pronuncia el TTS —
+ *    `captionText` es un titular/resumen mas corto, util como rotulo pero que no coincide palabra
+ *    por palabra con la voz.
+ *
+ * Se emite una escena por cada clip de audio, de modo que la duracion del video siempre cubre la
+ * del voiceover completo (antes, si el LLM devolvia menos escenas, el video quedaba mas corto que
+ * el audio).
  */
-function reconcileSceneTiming(edl: EditDecisionList, sceneAudio: SceneAudio[]): EditDecisionList {
-  const sorted = [...sceneAudio].sort((a, b) => a.sceneIndex - b.sceneIndex);
-  const timingByIndex = new Map<number, { startSeconds: number; durationSeconds: number }>();
-  let cursor = 0;
-  for (const sa of sorted) {
-    timingByIndex.set(sa.sceneIndex, { startSeconds: cursor, durationSeconds: sa.durationSeconds });
-    cursor += sa.durationSeconds;
+function reconcileSceneTiming(
+  edl: EditDecisionList,
+  sceneAudio: SceneAudio[],
+  scriptScenes: ScriptScene[],
+): EditDecisionList {
+  const audioSorted = [...sceneAudio].sort((a, b) => a.sceneIndex - b.sceneIndex);
+  const edlSorted = [...edl.scenes].sort((a, b) => a.index - b.index);
+  if (edlSorted.length === 0) return { ...edl, scenes: [], totalDurationSeconds: 0 };
+
+  const audioIndices = new Set(audioSorted.map((a) => a.sceneIndex));
+  const indicesMatch = edlSorted.every((s) => audioIndices.has(s.index));
+  if (!indicesMatch) {
+    logger.warn("Los indices de escena del EDL no coinciden con los del audio; alineando por posicion", {
+      edlIndices: edlSorted.map((s) => s.index),
+      audioIndices: [...audioIndices],
+    });
   }
 
-  const scenes = edl.scenes
-    .filter((scene) => timingByIndex.has(scene.index))
-    .map((scene): EDLScene => ({ ...scene, ...timingByIndex.get(scene.index)! }))
-    .sort((a, b) => a.startSeconds - b.startSeconds);
+  let cursor = 0;
+  const scenes: EDLScene[] = audioSorted.map((audio, position) => {
+    const fallbackSource = edlSorted[Math.min(position, edlSorted.length - 1)]!;
+    const source = indicesMatch
+      ? (edlSorted.find((s) => s.index === audio.sceneIndex) ?? fallbackSource)
+      : fallbackSource;
+    const scriptScene = scriptScenes.find((s) => s.index === audio.sceneIndex);
+
+    const scene: EDLScene = {
+      ...source,
+      index: audio.sceneIndex,
+      startSeconds: cursor,
+      durationSeconds: audio.durationSeconds,
+      captionText: scriptScene?.narrationText ?? source.captionText,
+      // Se recalculan siempre en withWordTimings() sobre el timing real recien asignado.
+      captionWordTimings: undefined,
+    };
+    cursor += audio.durationSeconds;
+    return scene;
+  });
 
   return { ...edl, scenes, totalDurationSeconds: cursor };
 }
 
-/** Rellena captionWordTimings (si faltan) a partir del texto y el timing ya reconciliado de cada escena. */
+/** Asigna a cada escena el clip descargado que le corresponde, ya con el indice corregido. */
+function withSceneClips(edl: EditDecisionList, sceneClips: SceneClip[]): EditDecisionList {
+  const scenes = edl.scenes.map((scene): EDLScene => {
+    const match = sceneClips.find((sc) => sc.sceneIndex === scene.index);
+    if (!match) return scene;
+    return { ...scene, clip: { sourcePath: match.localPath, mediaType: match.clip.mediaType } };
+  });
+  return { ...edl, scenes };
+}
+
+/** Cronometra palabra por palabra el texto de cada escena sobre su duracion real ya reconciliada. */
 function withWordTimings(edl: EditDecisionList): EditDecisionList {
   const scenes = edl.scenes.map((scene): EDLScene => {
-    if (scene.captionWordTimings?.length || !scene.captionText) return scene;
+    if (!scene.captionText) return scene;
     return {
       ...scene,
       captionWordTimings: estimateWordTimings(scene.captionText, scene.startSeconds, scene.durationSeconds),
@@ -156,20 +206,21 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
 
     // Fill in file paths the LLM doesn't know about (it only reasoned about scene indices/keywords).
     edl.audio.voiceoverPath = voiceoverPath;
-    edl.scenes = edl.scenes.map((s) => {
-      const clip = sceneClips.find((sc) => sc.sceneIndex === s.index);
-      return clip ? { ...s, clip: { sourcePath: clip.localPath, mediaType: clip.clip.mediaType } } : s;
-    });
 
-    // Garantiza que cortes de escena y subtitulos queden sincronizados con el audio real (el LLM
-    // solo vio duraciones estimadas del guion, no la duracion medida del TTS).
-    edl = reconcileSceneTiming(edl, sceneAudio);
+    // El orden importa: reconcileSceneTiming corrige los indices de escena, y solo despues se pueden
+    // emparejar los clips por indice — hacerlo antes asignaba el clip equivocado a cada escena
+    // cuando el LLM numeraba el EDL desde 0.
+    edl = reconcileSceneTiming(edl, sceneAudio, scenes);
+    edl = withSceneClips(edl, sceneClips);
     edl = withWordTimings(edl);
 
     // La preferencia del usuario manda sobre lo que devuelva el LLM/fallback: si los subtitulos
     // estan desactivados para este video, forzamos captions.enabled=false para que el render
     // (edl-to-ffmpeg + render-video.handler) no los queme.
     edl.captions.enabled = video.captionsEnabled;
+    // El estilo lo decide el worker, no el LLM: el modelo no conoce las safe zones de YouTube ni los
+    // requisitos de contraste, y devolvia cosas como fuente de 42px (ilegible en un movil).
+    edl.captions.style = defaultCaptionStyle(video.format);
 
     const musicProvider = await resolveMusicProvider();
     if (musicProvider) {

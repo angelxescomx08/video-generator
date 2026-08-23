@@ -6,7 +6,8 @@ import { eq } from "drizzle-orm";
 import { storeMemory } from "../memory/embed";
 import { runStage, setVideoStatus } from "../pipeline/orchestrator";
 import { STAGES } from "../pipeline/stage-context";
-import { buildScriptGenerationRequest } from "../prompts/script-prompt.builder";
+import { clampScenesToWordBudget } from "../prompts/clamp-scenes-duration";
+import { buildScriptGenerationRequest, computeWordBudget } from "../prompts/script-prompt.builder";
 import { logger } from "../util/logger";
 
 export async function handleGenerateScript(payload: VideoJobPayload): Promise<void> {
@@ -22,13 +23,24 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
     const { request, cost: memoryCost } = await buildScriptGenerationRequest(theme, video);
     const { result, cost: scriptCost } = await provider.generateScript(request);
 
+    // Red de seguridad sin costo de tokens extra: si el LLM ignoro el limite de palabras del
+    // prompt, recorta las escenas aqui mismo en vez de pedirle al LLM que lo intente de nuevo.
+    const { maxWords } = computeWordBudget(request.targetDurationSeconds);
+    const scenes = clampScenesToWordBudget(result.scenes, maxWords);
+    if (scenes !== result.scenes) {
+      logger.warn(`Guion recortado por exceder el presupuesto de palabras para video ${videoId}`, {
+        maxWords,
+        originalScenes: result.scenes.length,
+      });
+    }
+
     await db
       .update(videos)
       .set({
         title: result.title,
         description: result.description,
         script: result.script,
-        scenes: result.scenes,
+        scenes,
         tags: result.tags,
         updatedAt: new Date(),
       })
@@ -67,7 +79,7 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
     const costs: CostItem[] = [memoryCost, scriptCost, storeCost].map((c) => ({ ...c, stage: "script" }));
 
     logger.info(`Script generated for video ${videoId}`, { title: result.title });
-    return { ...result, costs };
+    return { ...result, scenes, costs };
   });
 
   await setVideoStatus(videoId, "generating_tts");

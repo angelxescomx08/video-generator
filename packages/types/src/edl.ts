@@ -39,6 +39,31 @@ export const captionStyleSchema = z.object({
 });
 export type CaptionStyle = z.infer<typeof captionStyleSchema>;
 
+/**
+ * Estilo canonico de subtitulos. Es la fuente unica de verdad: el LLM tambien devuelve un
+ * `captions.style` en su EDL, pero no conoce las safe zones de YouTube ni los requisitos de
+ * contraste, asi que el worker lo sobreescribe con esto.
+ *
+ * Decisiones (convenciones de subtitulado quemado para Shorts/Reels):
+ * - Blanco sobre contorno negro grueso: la combinacion de maximo contraste, legible sobre cualquier
+ *   footage. El contorno se dibuja en srt-builder.ts, no aqui.
+ * - Amarillo dorado para la palabra que se esta pronunciando (resalte karaoke); es el color de
+ *   resalte mas usado y el que mejor se distingue del blanco.
+ * - `position: "bottom"` con margenes que respetan la UI de YouTube (ver captions/safe-area.ts).
+ * - Sin recuadro de fondo: el contorno grueso ya garantiza legibilidad y tapa menos imagen.
+ */
+export function defaultCaptionStyle(format: "long" | "short"): CaptionStyle {
+  return {
+    fontFamily: "Arial",
+    // ~4% del alto del lienzo: grande de verdad, como en los Shorts que si se leen en un movil.
+    fontSizePx: format === "short" ? 80 : 48,
+    color: "#FFFFFF",
+    highlightColor: "#FFD700",
+    position: "bottom",
+    backgroundBox: false,
+  };
+}
+
 export const edlSceneSchema = z.object({
   index: z.number().int().nonnegative(),
   startSeconds: z.number().nonnegative(),
@@ -103,14 +128,7 @@ export function buildFallbackEdl(params: {
     audio: { voiceoverPath: params.voiceoverPath },
     captions: {
       enabled: false,
-      style: {
-        fontFamily: "Arial",
-        fontSizePx: params.format === "short" ? 64 : 42,
-        color: "#FFFFFF",
-        highlightColor: "#FFD700",
-        position: "bottom",
-        backgroundBox: true,
-      },
+      style: defaultCaptionStyle(params.format),
     },
     scenes,
   };
