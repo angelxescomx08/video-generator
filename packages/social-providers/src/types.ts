@@ -6,6 +6,8 @@ export interface PublishRequest {
   visibility?: "public" | "unlisted" | "private";
   isShort?: boolean;
   thumbnailFilePath?: string;
+  /** categoryId de YouTube. Si se omite, YouTube asigna su cajon por defecto (22, Gente y blogs). */
+  categoryId?: string;
 }
 
 export interface PublishResult {

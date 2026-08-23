@@ -1,0 +1,1 @@
+ALTER TABLE "themes" ADD COLUMN "youtube_category_id" text;

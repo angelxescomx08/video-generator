@@ -1,5 +1,5 @@
 import { decryptSecret, encryptSecret } from "@video-generator/config";
-import { db, platformAccounts, publishedVideos, videos } from "@video-generator/db";
+import { db, platformAccounts, publishedVideos, themes, videos } from "@video-generator/db";
 import { getBoss, publishJobPayloadSchema, QUEUES, type PublishJobPayload } from "@video-generator/queue";
 import { resolveSocialProvider } from "@video-generator/social-providers";
 import { eq } from "drizzle-orm";
@@ -16,6 +16,10 @@ export async function handlePublishVideo(payload: PublishJobPayload): Promise<vo
 
   const account = await db.query.platformAccounts.findFirst({ where: eq(platformAccounts.id, platformAccountId) });
   if (!account) throw new Error(`Platform account ${platformAccountId} not found`);
+
+  // La categoria de YouTube se configura por tema: todos los videos de un tema son del mismo tipo
+  // de contenido, asi que no tiene sentido pedirla video por video.
+  const theme = await db.query.themes.findFirst({ where: eq(themes.id, video.themeId) });
 
   await runStage(videoId, STAGES.publish!, async () => {
     const provider = resolveSocialProvider(account.platform as "youtube" | "facebook");
@@ -45,6 +49,7 @@ export async function handlePublishVideo(payload: PublishJobPayload): Promise<vo
         description: video.description ?? "",
         tags: video.tags ?? [],
         isShort: video.format === "short",
+        categoryId: theme?.youtubeCategoryId ?? undefined,
       },
     );
 

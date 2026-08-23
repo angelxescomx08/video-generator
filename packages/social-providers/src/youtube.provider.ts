@@ -102,6 +102,9 @@ export class YouTubeProvider implements SocialPlatformProvider {
         title: req.title,
         description: req.description,
         tags: sanitizeTags(req.tags ?? []),
+        // Sin categoryId YouTube usa su default (22). Declararla explicitamente ayuda a que el
+        // video se recomiende junto al contenido correcto.
+        ...(req.categoryId ? { categoryId: req.categoryId } : {}),
       },
       status: {
         privacyStatus: req.visibility ?? "public",

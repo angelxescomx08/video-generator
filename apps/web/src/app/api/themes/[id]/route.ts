@@ -9,6 +9,7 @@ const updateThemeSchema = z.object({
   systemPrompt: z.string().min(1).optional(),
   scriptPromptTemplate: z.string().min(1).optional(),
   defaultVoiceId: z.string().optional(),
+  youtubeCategoryId: z.string().optional(),
   isActive: z.boolean().optional(),
 });
 

@@ -43,6 +43,13 @@
       "when": 1787506504564,
       "tag": "0005_complete_nightmare",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787509087048,
+      "tag": "0006_mixed_scarecrow",
+      "breakpoints": true
     }
   ]
 }

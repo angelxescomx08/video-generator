@@ -9,6 +9,7 @@ const createThemeSchema = z.object({
   systemPrompt: z.string().min(1),
   scriptPromptTemplate: z.string().min(1),
   defaultVoiceId: z.string().optional(),
+  youtubeCategoryId: z.string().optional(),
 });
 
 export async function GET() {

@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
 import type { Theme } from "@video-generator/db";
+import { YOUTUBE_CATEGORIES } from "@video-generator/types";
 
 export function ThemeForm({ initial }: { initial?: Theme }) {
   const router = useRouter();
@@ -17,6 +19,7 @@ export function ThemeForm({ initial }: { initial?: Theme }) {
   const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? "");
   const [scriptPromptTemplate, setScriptPromptTemplate] = useState(initial?.scriptPromptTemplate ?? "");
   const [defaultVoiceId, setDefaultVoiceId] = useState(initial?.defaultVoiceId ?? "");
+  const [youtubeCategoryId, setYoutubeCategoryId] = useState(initial?.youtubeCategoryId ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,8 +31,8 @@ export function ThemeForm({ initial }: { initial?: Theme }) {
       const url = isEdit ? `/api/themes/${initial!.id}` : "/api/themes";
       const method = isEdit ? "PATCH" : "POST";
       const payload = isEdit
-        ? { name, description, systemPrompt, scriptPromptTemplate, defaultVoiceId }
-        : { slug, name, description, systemPrompt, scriptPromptTemplate, defaultVoiceId };
+        ? { name, description, systemPrompt, scriptPromptTemplate, defaultVoiceId, youtubeCategoryId }
+        : { slug, name, description, systemPrompt, scriptPromptTemplate, defaultVoiceId, youtubeCategoryId };
 
       const response = await fetch(url, {
         method,
@@ -87,6 +90,26 @@ export function ThemeForm({ initial }: { initial?: Theme }) {
       <div className="space-y-2">
         <Label htmlFor="defaultVoiceId">Voz por defecto (TTS)</Label>
         <Input id="defaultVoiceId" value={defaultVoiceId} onChange={(e) => setDefaultVoiceId(e.target.value)} />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="youtubeCategoryId">Categoria de YouTube</Label>
+        <Select
+          id="youtubeCategoryId"
+          value={youtubeCategoryId}
+          onChange={(e) => setYoutubeCategoryId(e.target.value)}
+        >
+          <option value="">Dejar que YouTube decida (usa Gente y blogs)</option>
+          {YOUTUBE_CATEGORIES.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          {YOUTUBE_CATEGORIES.find((c) => c.id === youtubeCategoryId)?.hint ??
+            "YouTube no tiene categoria de religion: el contenido cristiano va en Educacion si ensena algo, o Gente y blogs si es testimonio."}
+        </p>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
