@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ArrowRight } from "lucide-react";
 import { db, videos, platformAccounts, musicTracks } from "@/lib/db";
 import { desc, eq } from "drizzle-orm";
 import { VideoMusicPanel } from "@/components/video-music-panel";
@@ -102,6 +104,26 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
 
       <Section title="Feedback" description="Alimenta la memoria que usa la IA para el proximo video del tema.">
         <FeedbackForm videoId={video.id} />
+      </Section>
+
+      {/* 7. Rendimiento — las estadisticas reales, que es de donde sale el aprendizaje global */}
+      <Section
+        title="Rendimiento"
+        description="Como le fue una vez publicado. Es la senal mas fuerte que tiene la IA, porque son datos de la audiencia y no una opinion."
+      >
+        <Link
+          href={`/videos/${video.id}/performance`}
+          className="flex items-center justify-between gap-4 rounded-md border border-border p-4 transition-colors hover:bg-muted/50"
+        >
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Registrar como le fue</p>
+            <p className="text-xs text-muted-foreground">
+              Jala las metricas de YouTube con un boton o escribelas a mano. Los patrones que salen de aqui se
+              aplican a todos los temas del canal, no solo a este.
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </Link>
       </Section>
     </div>
   );

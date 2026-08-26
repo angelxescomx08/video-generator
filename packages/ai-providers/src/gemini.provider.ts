@@ -1,5 +1,6 @@
 import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
 import { estimateGeminiCost } from "./pricing";
+import { buildScriptUserPrompt } from "./script-context";
 import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
   AICallResult,
@@ -130,10 +131,10 @@ export class GeminiProvider implements AIProvider {
   }
 
   async generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>> {
-    const regenerationBlock = req.regenerationInstruction
-      ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
-      : "";
-    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nIdea / topico especifico (base del guion): ${req.topic ?? "elige uno apropiado"}\n\n${req.styleGuide ?? ""}\n\nDevuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
+    const userPrompt = buildScriptUserPrompt(
+      req,
+      `Devuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`,
+    );
     const { json, cost } = await this.generateJson(req.systemPrompt, userPrompt, SCRIPT_RESPONSE_SCHEMA);
     return { result: json as ScriptGenerationResult, cost };
   }

@@ -4,6 +4,7 @@ import type { Theme, Video } from "@video-generator/db";
 import type { ProviderCost } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import { getAvoidFacts, getRecentFeedback, retrieveMemoryContext } from "../memory/retrieve";
+import { getPerformanceLearnings } from "../memory/performance";
 
 const REPEATABLE_FACT_TYPES = ["bible_verse_used", "quote_used", "title_used"] as const;
 
@@ -16,10 +17,13 @@ export async function buildScriptGenerationRequest(
 ): Promise<{ request: ScriptGenerationRequest; cost: ProviderCost }> {
   const queryText = `${theme.name} ${video.topic ?? ""}`.trim();
 
-  const [memory, avoidFacts, recentFeedback, regenerationInstruction] = await Promise.all([
+  const [memory, avoidFacts, recentFeedback, performanceLearnings, regenerationInstruction] = await Promise.all([
     retrieveMemoryContext(theme.id, queryText),
     getAvoidFacts(theme.id, [...REPEATABLE_FACT_TYPES]),
     getRecentFeedback(theme.id),
+    // Global a proposito, sin filtrar por tema: como se escribe un gancho que retiene no es una
+    // particularidad del tema, y limitarlo por tema tira casi toda la muestra en un canal chico.
+    getPerformanceLearnings(),
     resolveRegenerationInstruction(video.pendingFeedbackId),
   ]);
 
@@ -36,6 +40,7 @@ export async function buildScriptGenerationRequest(
       memoryContext: memory.items,
       avoidFacts,
       recentFeedback,
+      performanceLearnings,
       regenerationInstruction,
       styleGuide: buildStyleGuide(targetDurationSeconds, video.format),
     },

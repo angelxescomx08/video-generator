@@ -6,6 +6,8 @@ import type {
   PlatformAccountRef,
   PublishRequest,
   PublishResult,
+  RemoteVideoMetadata,
+  RetentionPoint,
   SocialPlatformProvider,
   StatsSnapshot,
 } from "./types";
@@ -144,6 +146,39 @@ export class YouTubeProvider implements SocialPlatformProvider {
     return { externalVideoId: data.id, externalUrl: `https://www.youtube.com/watch?v=${data.id}` };
   }
 
+  /**
+   * Confirma que el video existe y que la cuenta conectada lo puede ver, y devuelve su fecha real de
+   * publicacion. Esa fecha es la que hace comparables los snapshots: sin ella no se sabe la edad del
+   * video y las guardas del motor de aprendizaje (ignorar videos de menos de N dias) no pueden
+   * aplicarse.
+   *
+   * Devuelve null si el ID no corresponde a ningun video visible, para poder rechazar un vinculo mal
+   * pegado antes de guardarlo.
+   */
+  async fetchVideoMetadata(
+    account: PlatformAccountRef,
+    externalVideoId: string,
+  ): Promise<RemoteVideoMetadata | null> {
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${encodeURIComponent(externalVideoId)}`,
+      { headers: { Authorization: `Bearer ${account.accessToken}` } },
+    );
+    if (!response.ok) throw new Error(`YouTube Data API lookup failed: ${response.status} ${await response.text()}`);
+
+    const json = (await response.json()) as {
+      items?: { id: string; snippet?: { title?: string; publishedAt?: string; channelId?: string } }[];
+    };
+    const item = json.items?.[0];
+    if (!item) return null;
+
+    return {
+      externalVideoId: item.id,
+      title: item.snippet?.title ?? "(sin titulo)",
+      publishedAt: item.snippet?.publishedAt ? new Date(item.snippet.publishedAt) : null,
+      channelId: item.snippet?.channelId,
+    };
+  }
+
   async fetchStats(account: PlatformAccountRef, externalVideoId: string): Promise<StatsSnapshot> {
     const dataResponse = await fetch(
       `https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${externalVideoId}`,
@@ -155,32 +190,191 @@ export class YouTubeProvider implements SocialPlatformProvider {
     };
     const stats = dataJson.items[0]?.statistics ?? { viewCount: "0", likeCount: "0", commentCount: "0" };
 
-    let avgViewDurationSeconds: number | undefined;
-    let avgViewPercentage: number | undefined;
-    try {
-      const analyticsResponse = await fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=2100-01-01&metrics=averageViewDuration,averageViewPercentage&filters=video==${externalVideoId}`,
-        { headers: { Authorization: `Bearer ${account.accessToken}` } },
-      );
-      if (analyticsResponse.ok) {
-        const analyticsJson = (await analyticsResponse.json()) as { rows?: number[][] };
-        const row = analyticsJson.rows?.[0];
-        if (row) {
-          avgViewDurationSeconds = row[0];
-          avgViewPercentage = row[1];
-        }
-      }
-    } catch {
-      // Analytics API is optional (requires extra scope/setup) — Data API stats above still work without it.
-    }
+    // Cada grupo va por separado y falla solo: si el canal no tiene acceso a `impressions` o
+    // YouTube todavia no calculo la retencion, el resto de las metricas siguen llegando.
+    const [core, reach, retention, traffic] = await Promise.all([
+      this.analyticsRow(account, externalVideoId, ANALYTICS_CORE_METRICS),
+      this.analyticsRow(account, externalVideoId, ANALYTICS_REACH_METRICS),
+      this.retentionCurve(account, externalVideoId),
+      this.trafficSources(account, externalVideoId),
+    ]);
+
+    const views = Number(stats.viewCount);
+
+    // La Data API es casi en vivo, pero los reportes de Analytics tardan 48-72h en procesarse y
+    // mientras tanto devuelven una fila de PUROS CEROS en vez de no devolver fila. Guardar esos ceros
+    // seria registrar "0% de retencion" como una medicion real, cuando en realidad es "sin dato": con
+    // views > 0 es imposible que nadie haya visto nada. Se descarta el grupo entero para que quede en
+    // null, que es lo que el motor de aprendizaje sabe ignorar.
+    const analyticsReady = core !== null && !(views > 0 && core.estimatedMinutesWatched === 0);
+    const ready = analyticsReady ? core : null;
+    const watchedMinutes = ready?.estimatedMinutesWatched;
 
     return {
-      views: Number(stats.viewCount),
+      views,
       likes: Number(stats.likeCount),
       comments: Number(stats.commentCount),
-      avgViewDurationSeconds,
-      avgViewPercentage,
-      raw: { dataApi: stats },
+      shares: ready?.shares,
+      avgViewDurationSeconds: ready?.averageViewDuration,
+      avgViewPercentage: ready?.averageViewPercentage,
+      subscribersGained: ready?.subscribersGained,
+      subscribersLost: ready?.subscribersLost,
+      watchTimeHours: watchedMinutes === undefined ? undefined : watchedMinutes / 60,
+      impressions: reach?.impressions,
+      impressionsCtr: reach?.impressionsClickThroughRate,
+      engagedViews: reach?.engagedViews,
+      retentionCurve: retention?.curve,
+      retentionAtStartPercentage: retention?.atStartPercentage,
+      trafficSources: traffic,
+      raw: {
+        dataApi: stats,
+        analyticsCore: core,
+        analyticsReach: reach,
+        trafficSources: traffic,
+        // Se deja rastro de por que las metricas de Analytics pudieron quedar en null, para no tener
+        // que adivinar despues si fue falta de permisos o el retraso de procesamiento de YouTube.
+        analyticsReady,
+      },
     };
   }
+
+  /**
+   * Pide un grupo de metricas agregadas de la Analytics API y las devuelve indexadas por nombre.
+   * Devuelve null (no lanza) si el grupo entero no esta disponible: una metrica no soportada por el
+   * canal hace fallar el request completo con 400, y perder un grupo opcional no debe tumbar el poll.
+   */
+  private async analyticsRow(
+    account: PlatformAccountRef,
+    externalVideoId: string,
+    metrics: readonly string[],
+  ): Promise<Record<string, number> | null> {
+    try {
+      const params = new URLSearchParams({
+        ids: "channel==MINE",
+        startDate: ANALYTICS_START_DATE,
+        endDate: todayIsoDate(),
+        metrics: metrics.join(","),
+        filters: `video==${externalVideoId}`,
+      });
+      const response = await fetch(`${ANALYTICS_BASE_URL}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${account.accessToken}` },
+      });
+      if (!response.ok) return null;
+      const json = (await response.json()) as { columnHeaders?: { name: string }[]; rows?: number[][] };
+      const row = json.rows?.[0];
+      if (!row || !json.columnHeaders) return null;
+      const result: Record<string, number> = {};
+      json.columnHeaders.forEach((header, i) => {
+        const value = row[i];
+        if (typeof value === "number") result[header.name] = value;
+      });
+      return result;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Curva de retencion (`audienceWatchRatio` sobre la dimension `elapsedVideoTimeRatio`): para cada
+   * decil del video, que fraccion de la audiencia seguia viendo. YouTube tarda hasta ~48h en
+   * calcularla y no la publica si el video no junto suficientes vistas, asi que la respuesta vacia es
+   * el caso normal en un video recien subido, no un error.
+   */
+  private async retentionCurve(
+    account: PlatformAccountRef,
+    externalVideoId: string,
+  ): Promise<{ curve: RetentionPoint[]; atStartPercentage?: number } | null> {
+    try {
+      const params = new URLSearchParams({
+        ids: "channel==MINE",
+        startDate: ANALYTICS_START_DATE,
+        endDate: todayIsoDate(),
+        metrics: "audienceWatchRatio",
+        dimensions: "elapsedVideoTimeRatio",
+        filters: `video==${externalVideoId}`,
+        sort: "elapsedVideoTimeRatio",
+      });
+      const response = await fetch(`${ANALYTICS_BASE_URL}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${account.accessToken}` },
+      });
+      if (!response.ok) return null;
+      const json = (await response.json()) as { rows?: [number, number][] };
+      if (!json.rows?.length) return null;
+
+      const curve: RetentionPoint[] = json.rows.map(([elapsedRatio, watchRatio]) => ({
+        elapsedRatio,
+        watchRatio,
+      }));
+      return { curve, atStartPercentage: retentionAtStart(curve) };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Reparto de vistas por fuente de trafico — distingue "mal video" de "no lo distribuyeron". */
+  private async trafficSources(
+    account: PlatformAccountRef,
+    externalVideoId: string,
+  ): Promise<Record<string, number> | undefined> {
+    try {
+      const params = new URLSearchParams({
+        ids: "channel==MINE",
+        startDate: ANALYTICS_START_DATE,
+        endDate: todayIsoDate(),
+        metrics: "views",
+        dimensions: "insightTrafficSourceType",
+        filters: `video==${externalVideoId}`,
+      });
+      const response = await fetch(`${ANALYTICS_BASE_URL}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${account.accessToken}` },
+      });
+      if (!response.ok) return undefined;
+      const json = (await response.json()) as { rows?: [string, number][] };
+      if (!json.rows?.length) return undefined;
+      return Object.fromEntries(json.rows);
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+const ANALYTICS_BASE_URL = "https://youtubeanalytics.googleapis.com/v2/reports";
+
+/** Fundacion de YouTube: cubre cualquier video sin tener que conocer su fecha de publicacion. */
+const ANALYTICS_START_DATE = "2005-02-14";
+
+/** Metricas que existen para cualquier canal. */
+const ANALYTICS_CORE_METRICS = [
+  "averageViewDuration",
+  "averageViewPercentage",
+  "estimatedMinutesWatched",
+  "shares",
+  "subscribersGained",
+  "subscribersLost",
+] as const;
+
+/**
+ * Metricas de alcance. Van aparte de las core porque `impressions` e `impressionsClickThroughRate`
+ * no estan disponibles para todos los canales/formatos (en Shorts normalmente no existen) y un
+ * request que las incluya devuelve 400 completo, arrastrando las metricas que si funcionan.
+ */
+const ANALYTICS_REACH_METRICS = [
+  "impressions",
+  "impressionsClickThroughRate",
+  "engagedViews",
+] as const;
+
+/** La API rechaza endDate en el futuro, asi que la ventana se cierra hoy. */
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Convierte la curva en la unica cifra que de verdad califica el gancho: que porcentaje seguia
+ * viendo cerca del inicio. Toma el primer punto pasado el arranque (elapsedRatio > 0) porque el
+ * punto 0 siempre vale 1 por definicion y no dice nada.
+ */
+function retentionAtStart(curve: RetentionPoint[]): number | undefined {
+  const point = curve.find((p) => p.elapsedRatio > 0);
+  return point ? point.watchRatio * 100 : undefined;
 }

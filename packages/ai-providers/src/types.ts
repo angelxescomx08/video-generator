@@ -21,6 +21,29 @@ export interface FeedbackSummary {
   rating: number | null;
   comment: string | null;
   createdAt: Date;
+  /** 'theme' si es feedback de este mismo tema, 'channel' si viene de otro tema del canal. */
+  scope?: "theme" | "channel";
+}
+
+/**
+ * Una correlacion medida entre como se hizo un video y como le fue, calculada sobre TODO el canal
+ * (no por tema). La calcula apps/worker/src/memory/performance.ts a partir de las estadisticas
+ * reales de YouTube, no la inventa el modelo.
+ *
+ * Lleva `sampleSize` y `deltaPoints` a proposito: el prompt le dice al modelo cuantos videos
+ * respaldan cada patron, para que no trate una diferencia de 3 videos como una ley.
+ */
+export interface PerformanceLearning {
+  /** Que se comparo (p.ej. "tipo de gancho"). */
+  dimension: string;
+  /** El patron observado, con sus numeros. */
+  insight: string;
+  /** Que hacer con eso al escribir el proximo guion. */
+  recommendation: string;
+  /** Puntos porcentuales de diferencia entre el mejor y el peor grupo. */
+  deltaPoints: number;
+  /** Videos que respaldan la comparacion. */
+  sampleSize: number;
 }
 
 export interface ScriptGenerationRequest {
@@ -33,6 +56,9 @@ export interface ScriptGenerationRequest {
   memoryContext: MemoryContextItem[];
   avoidFacts: string[];
   recentFeedback: FeedbackSummary[];
+  /** Patrones de rendimiento medidos en TODO el canal (ver PerformanceLearning). Opcional: llega
+   * vacio mientras no haya suficientes videos publicados con estadisticas. */
+  performanceLearnings?: PerformanceLearning[];
   /** Instruccion puntual del feedback que disparo esta regeneracion (p.ej. "hazlo mas largo") — se debe priorizar sobre el resto del contexto. */
   regenerationInstruction?: string;
   /** Guia de tono/estilo + refuerzo de duracion (numero de palabras/escenas). La arma el builder; todos los providers la deben incluir en el prompt. */

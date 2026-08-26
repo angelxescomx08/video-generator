@@ -1,5 +1,6 @@
 import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
 import { estimateAnthropicCost } from "./pricing";
+import { buildScriptUserPrompt } from "./script-context";
 import { MUSIC_SUGGESTION_INSTRUCTION, NotImplementedError, VISUAL_KEYWORDS_INSTRUCTION, type AICallResult, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
 
 interface AnthropicProviderOptions {
@@ -57,33 +58,10 @@ export class AnthropicProvider implements AIProvider {
   }
 
   async generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>> {
-    const memoryBlock = req.memoryContext.map((m) => `- (${m.contentType}) ${m.content}`).join("\n") || "Ninguno";
-    const avoidBlock = req.avoidFacts.length > 0 ? req.avoidFacts.join(", ") : "Ninguno";
-    const feedbackBlock =
-      req.recentFeedback.map((f) => `- rating=${f.rating ?? "N/A"} comentario="${f.comment ?? ""}"`).join("\n") ||
-      "Ninguno";
-    const regenerationBlock = req.regenerationInstruction
-      ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
-      : "";
-    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}
-
-Tema: ${req.themeSlug}
-Formato: ${req.format}
-Duracion objetivo: ${req.targetDurationSeconds}s
-Idea / topico especifico (base del guion): ${req.topic ?? "elige uno apropiado"}
-
-Memoria de generaciones pasadas relevantes:
-${memoryBlock}
-
-No repitas exactamente estos hechos ya usados:
-${avoidBlock}
-
-Feedback reciente de la audiencia/usuario a considerar:
-${feedbackBlock}
-
-${req.styleGuide ?? ""}
-
-Devuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
+    const userPrompt = buildScriptUserPrompt(
+      req,
+      `Devuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`,
+    );
     const { json, cost } = await this.messageJson(req.systemPrompt, userPrompt);
     return { result: json as ScriptGenerationResult, cost };
   }

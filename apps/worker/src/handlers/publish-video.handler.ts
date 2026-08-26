@@ -1,9 +1,9 @@
-import { decryptSecret, encryptSecret } from "@video-generator/config";
 import { db, platformAccounts, publishedVideos, themes, videos } from "@video-generator/db";
 import { getBoss, publishJobPayloadSchema, QUEUES, type PublishJobPayload } from "@video-generator/queue";
 import { resolveSocialProvider } from "@video-generator/social-providers";
 import { eq } from "drizzle-orm";
 import { runStage, setVideoStatus } from "../pipeline/orchestrator";
+import { resolveAccessToken } from "../social/access-token";
 import { STAGES } from "../pipeline/stage-context";
 import { logger } from "../util/logger";
 
@@ -24,22 +24,7 @@ export async function handlePublishVideo(payload: PublishJobPayload): Promise<vo
   await runStage(videoId, STAGES.publish!, async () => {
     const provider = resolveSocialProvider(account.platform as "youtube" | "facebook");
 
-    let accessToken = decryptSecret(account.accessToken);
-    const refreshToken = account.refreshToken ? decryptSecret(account.refreshToken) : undefined;
-
-    const isExpiringSoon = account.tokenExpiresAt && account.tokenExpiresAt.getTime() - Date.now() < 5 * 60 * 1000;
-    if (isExpiringSoon && refreshToken) {
-      const refreshed = await provider.refreshTokens(refreshToken);
-      accessToken = refreshed.accessToken;
-      await db
-        .update(platformAccounts)
-        .set({
-          accessToken: encryptSecret(refreshed.accessToken),
-          tokenExpiresAt: refreshed.expiresAt,
-          updatedAt: new Date(),
-        })
-        .where(eq(platformAccounts.id, account.id));
-    }
+    const { accessToken, refreshToken } = await resolveAccessToken(account, provider);
 
     const result = await provider.publish(
       { accessToken, refreshToken, externalAccountId: account.externalAccountId ?? undefined },

@@ -50,6 +50,13 @@
       "when": 1787509087048,
       "tag": "0006_mixed_scarecrow",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787677871315,
+      "tag": "0007_wakeful_sentinels",
+      "breakpoints": true
     }
   ]
 }

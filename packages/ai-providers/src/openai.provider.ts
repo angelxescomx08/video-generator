@@ -1,5 +1,6 @@
 import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
 import { estimateOpenAiCost } from "./pricing";
+import { buildScriptUserPrompt } from "./script-context";
 import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
   AICallResult,
@@ -58,10 +59,10 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>> {
-    const regenerationBlock = req.regenerationInstruction
-      ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
-      : "";
-    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}\n\nTema: ${req.themeSlug}\nFormato: ${req.format}\nDuracion objetivo: ${req.targetDurationSeconds}s\nTopico: ${req.topic ?? "elige uno apropiado"}\n\n${req.styleGuide ?? ""}\n\nDevuelve JSON con: title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`;
+    const userPrompt = buildScriptUserPrompt(
+      req,
+      `Devuelve JSON con: title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`,
+    );
     const { json, cost } = await this.chatJson(req.systemPrompt, userPrompt);
     return { result: json as ScriptGenerationResult, cost };
   }

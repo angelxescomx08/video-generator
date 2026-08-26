@@ -6,7 +6,7 @@ import {
   videoMemory,
   type FactType,
 } from "@video-generator/db";
-import { cosineDistance, desc, eq, and, inArray, sql } from "drizzle-orm";
+import { cosineDistance, desc, eq, ne, and, inArray, sql } from "drizzle-orm";
 import type { FeedbackSummary, MemoryContextItem } from "@video-generator/ai-providers";
 import type { ProviderCost } from "@video-generator/types";
 
@@ -51,13 +51,34 @@ export async function getAvoidFacts(themeId: string, factTypes: FactType[]): Pro
   return rows.map((r) => r.factValue);
 }
 
-/** Recent structured feedback for a theme, used alongside semantic memory recall. */
+/**
+ * Feedback estructurado reciente, del tema primero y del resto del canal despues.
+ *
+ * El feedback de otros temas se incluye porque casi todo lo que el usuario comenta es transversal
+ * ("la voz va muy rapido", "el final se corta"): son defectos de produccion, no del tema. Se marca
+ * su `scope` para que el prompt pueda decirle al modelo cual viene de este tema y cual del canal en
+ * general, y no confunda una nota sobre otro tema con una instruccion sobre este.
+ */
 export async function getRecentFeedback(themeId: string, limit = 10): Promise<FeedbackSummary[]> {
-  const rows = await db
-    .select({ rating: feedback.rating, comment: feedback.comment, createdAt: feedback.createdAt })
-    .from(feedback)
-    .where(eq(feedback.themeId, themeId))
-    .orderBy(desc(feedback.createdAt))
-    .limit(limit);
-  return rows;
+  const columns = { rating: feedback.rating, comment: feedback.comment, createdAt: feedback.createdAt };
+
+  const [themeRows, channelRows] = await Promise.all([
+    db
+      .select(columns)
+      .from(feedback)
+      .where(eq(feedback.themeId, themeId))
+      .orderBy(desc(feedback.createdAt))
+      .limit(limit),
+    db
+      .select(columns)
+      .from(feedback)
+      .where(ne(feedback.themeId, themeId))
+      .orderBy(desc(feedback.createdAt))
+      .limit(limit),
+  ]);
+
+  return [
+    ...themeRows.map((r) => ({ ...r, scope: "theme" as const })),
+    ...channelRows.map((r) => ({ ...r, scope: "channel" as const })),
+  ];
 }

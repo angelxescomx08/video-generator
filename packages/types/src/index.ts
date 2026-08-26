@@ -6,3 +6,5 @@ export * from "./cost";
 export * from "./youtube-audio-library";
 export * from "./audio-mix";
 export * from "./youtube-categories";
+export * from "./youtube-metrics";
+export * from "./youtube-link";

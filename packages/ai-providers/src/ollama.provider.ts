@@ -1,5 +1,6 @@
 import { editDecisionListSchema, type EditDecisionList } from "@video-generator/types";
 import { ollamaCost } from "./pricing";
+import { buildScriptUserPrompt } from "./script-context";
 import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
   AICallResult,
@@ -80,35 +81,7 @@ export class OllamaProvider implements AIProvider {
   }
 
   async generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>> {
-    const memoryBlock = req.memoryContext.map((m) => `- (${m.contentType}) ${m.content}`).join("\n") || "Ninguno";
-    const avoidBlock = req.avoidFacts.length > 0 ? req.avoidFacts.join(", ") : "Ninguno";
-    const feedbackBlock =
-      req.recentFeedback.map((f) => `- rating=${f.rating ?? "N/A"} comentario="${f.comment ?? ""}"`).join("\n") ||
-      "Ninguno";
-    const regenerationBlock = req.regenerationInstruction
-      ? `INSTRUCCION ESPECIFICA PARA ESTA NUEVA VERSION (prioridad sobre el resto del contexto): ${req.regenerationInstruction}\n\n`
-      : "";
-
-    const userPrompt = `${regenerationBlock}${req.userPromptTemplate}
-
-Tema: ${req.themeSlug}
-Formato: ${req.format}
-Duracion objetivo: ${req.targetDurationSeconds} segundos
-Tema/topico especifico: ${req.topic ?? "elige uno apropiado"}
-
-Memoria de generaciones pasadas relevantes:
-${memoryBlock}
-
-No repitas exactamente estos hechos ya usados:
-${avoidBlock}
-
-Feedback reciente de la audiencia/usuario a considerar:
-${feedbackBlock}
-
-${req.styleGuide ?? ""}
-
-${SCRIPT_JSON_INSTRUCTIONS}`;
-
+    const userPrompt = buildScriptUserPrompt(req, SCRIPT_JSON_INSTRUCTIONS);
     const raw = await this.chatJson(req.systemPrompt, userPrompt);
     return { result: raw as ScriptGenerationResult, cost: ollamaCost() };
   }

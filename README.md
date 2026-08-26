@@ -57,7 +57,7 @@ cp .env.example .env        # completa las API keys que quieras usar
 pnpm docker:up:deps         # levanta postgres + ollama + tts (piper) + adminer
 pnpm db:migrate             # aplica el schema
 pnpm db:seed                # inserta temas de ejemplo (cristianismo/biblia + general)
-pnpm dev                    # corre web (localhost:3000) y worker en paralelo
+pnpm dev                    # corre web (localhost:3001) y worker en paralelo
 ```
 
 Primera vez con Ollama, descarga el modelo:

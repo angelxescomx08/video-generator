@@ -26,3 +26,12 @@ export async function enqueuePublish(videoId: string, platformAccountId: string)
   const boss = await getBoss();
   await boss.send(QUEUES.PUBLISH_VIDEO, { videoId, platformAccountId });
 }
+
+/**
+ * Poll de estadisticas a demanda. Sin `videoId` barre todos los videos publicados — es la misma
+ * forma del payload que usa el cron de cada 6h (ver pollStatsPayloadSchema).
+ */
+export async function enqueueStatsPoll(videoId?: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send(QUEUES.POLL_STATS, videoId ? { videoId } : {});
+}
