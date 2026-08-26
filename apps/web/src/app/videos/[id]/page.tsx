@@ -8,6 +8,7 @@ import { VideoStatusPanel } from "@/components/job-status-badge";
 import { FeedbackForm } from "@/components/feedback-form";
 import { PublishPanel } from "@/components/publish-panel";
 import { VideoVersionsPanel } from "@/components/video-versions-panel";
+import { RerenderButton } from "@/components/rerender-button";
 import { CostPanel } from "@/components/cost-panel";
 import { AttributionPanel } from "@/components/attribution-panel";
 import { AudioLibraryPanel } from "@/components/audio-library-panel";
@@ -70,6 +71,7 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
             disabled={IN_PROGRESS}
           />
         )}
+        <RerenderButton videoId={video.id} disabled={IN_PROGRESS || !edl} />
         <VideoVersionsPanel videoId={video.id} />
       </Section>
 
