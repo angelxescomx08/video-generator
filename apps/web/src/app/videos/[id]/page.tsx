@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight } from "lucide-react";
-import { db, videos, platformAccounts, musicTracks } from "@/lib/db";
+import { db, videos, platformAccounts, musicTracks, publishedVideos } from "@/lib/db";
 import { desc, eq } from "drizzle-orm";
 import { VideoMusicPanel } from "@/components/video-music-panel";
 import { VideoStatusPanel } from "@/components/job-status-badge";
@@ -25,6 +25,16 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
 
   const accounts = await db.select().from(platformAccounts).where(eq(platformAccounts.isActive, true));
   const tracks = await db.select().from(musicTracks).orderBy(desc(musicTracks.createdAt));
+  // Las publicaciones existentes se leen del servidor para que el panel sepa que ya se subio incluso
+  // despues de un refresh — antes ese dato vivia solo en el estado del cliente.
+  const publications = await db
+    .select({
+      platformAccountId: publishedVideos.platformAccountId,
+      externalVideoId: publishedVideos.externalVideoId,
+      externalUrl: publishedVideos.externalUrl,
+    })
+    .from(publishedVideos)
+    .where(eq(publishedVideos.videoId, id));
 
   const edl = video.edl as EditDecisionList | null;
   const IN_PROGRESS = !["ready", "published", "failed"].includes(video.status);
@@ -92,14 +102,20 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
       </Section>
 
       {/* 5. Publicar y 6. Feedback */}
-      {video.status === "ready" && (
-        <Section title="Publicar">
+      {/* Tambien visible en 'published': si ya se subio, el panel es donde se ve el enlace y se
+          advierte de un duplicado — ocultarlo dejaba esa informacion sin ningun lugar donde mirarse. */}
+      {(video.status === "ready" || video.status === "published") && (
+        <Section
+          title="Publicar"
+          description="Se sube como publico, marcado como no apto para ninos y declarado como contenido generado con IA."
+        >
           <PublishPanel
             videoId={video.id}
             accounts={accounts.map((a) => ({
               id: a.id,
               label: `${a.platform}: ${a.accountLabel ?? a.externalAccountId ?? a.id}`,
             }))}
+            published={publications}
           />
         </Section>
       )}

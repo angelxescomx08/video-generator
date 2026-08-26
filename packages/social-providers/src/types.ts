@@ -84,4 +84,17 @@ export interface SocialPlatformProvider {
     account: PlatformAccountRef,
     externalVideoId: string,
   ): Promise<RemoteVideoMetadata | null>;
+
+  /**
+   * Busca entre las subidas recientes de la cuenta una que coincida con `title`.
+   *
+   * Sirve para detectar una subida HUERFANA: cuando el archivo llego a la plataforma pero la respuesta
+   * se perdio (conexion cortada), no hay id que guardar y el sistema cree que fallo. Sin esta consulta,
+   * el siguiente intento sube el mismo video otra vez. Opcional porque no toda plataforma permite
+   * listar las subidas recientes.
+   */
+  findRecentUploadByTitle?(
+    account: PlatformAccountRef,
+    title: string,
+  ): Promise<RemoteVideoMetadata | null>;
 }

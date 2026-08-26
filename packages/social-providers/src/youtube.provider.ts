@@ -110,7 +110,14 @@ export class YouTubeProvider implements SocialPlatformProvider {
       },
       status: {
         privacyStatus: req.visibility ?? "public",
+        // "No es contenido para ninos": afecta comentarios, recomendaciones y personalizacion. Se
+        // declara explicitamente porque YouTube OBLIGA a responderlo y no declararlo bloquea el video.
         selfDeclaredMadeForKids: false,
+        // Declaracion de contenido alterado o sintetico. Estos videos llevan narracion generada por
+        // TTS sobre un guion escrito por un LLM, asi que la declaracion corresponde: YouTube exige
+        // marcarlo cuando el contenido puede confundirse con algo real, y omitirlo expone el canal a
+        // sanciones. El nombre del campo se verifico contra el esquema VideoStatus de la Data API v3.
+        containsSyntheticMedia: true,
       },
     };
 
@@ -176,6 +183,52 @@ export class YouTubeProvider implements SocialPlatformProvider {
       title: item.snippet?.title ?? "(sin titulo)",
       publishedAt: item.snippet?.publishedAt ? new Date(item.snippet.publishedAt) : null,
       channelId: item.snippet?.channelId,
+    };
+  }
+
+  /**
+   * Busca en las subidas mas recientes del canal un video con este titulo exacto.
+   *
+   * Se usa antes de publicar para no duplicar una subida que ya llego: si la conexion murio despues de
+   * enviar el archivo pero antes de recibir el id, el video quedo en el canal y aqui se recupera para
+   * adoptarlo en vez de subirlo de nuevo.
+   *
+   * Solo se miran las ultimas subidas (una pagina) porque el caso que interesa es siempre reciente —
+   * minutos, no dias.
+   */
+  async findRecentUploadByTitle(
+    account: PlatformAccountRef,
+    title: string,
+  ): Promise<RemoteVideoMetadata | null> {
+    const channelResponse = await fetch(
+      "https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true",
+      { headers: { Authorization: `Bearer ${account.accessToken}` } },
+    );
+    if (!channelResponse.ok) return null;
+    const channelJson = (await channelResponse.json()) as {
+      items?: { contentDetails?: { relatedPlaylists?: { uploads?: string } } }[];
+    };
+    const uploadsPlaylist = channelJson.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    if (!uploadsPlaylist) return null;
+
+    const itemsResponse = await fetch(
+      `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=25&playlistId=${uploadsPlaylist}`,
+      { headers: { Authorization: `Bearer ${account.accessToken}` } },
+    );
+    if (!itemsResponse.ok) return null;
+    const itemsJson = (await itemsResponse.json()) as {
+      items?: { snippet?: { title?: string; publishedAt?: string; channelId?: string; resourceId?: { videoId?: string } } }[];
+    };
+
+    const match = itemsJson.items?.find((item) => item.snippet?.title === title);
+    const videoId = match?.snippet?.resourceId?.videoId;
+    if (!match || !videoId) return null;
+
+    return {
+      externalVideoId: videoId,
+      title: match.snippet?.title ?? title,
+      publishedAt: match.snippet?.publishedAt ? new Date(match.snippet.publishedAt) : null,
+      channelId: match.snippet?.channelId,
     };
   }
 
