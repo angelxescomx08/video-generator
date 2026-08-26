@@ -1,5 +1,7 @@
+import { EMBEDDING_DIMENSIONS } from "@video-generator/db";
 import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
 import { estimateGeminiCost } from "./pricing";
+import { geminiCharBudget, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
 import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
@@ -14,6 +16,13 @@ import type {
 interface GeminiProviderOptions {
   apiKey: string;
   model: string;
+  embeddingModel: string;
+}
+
+/** Devuelve el vector con norma 1, para que las metricas de distancia se comporten como esperan. */
+function normalizeVector(values: number[]): number[] {
+  const magnitude = Math.sqrt(values.reduce((total, v) => total + v * v, 0));
+  return magnitude === 0 ? values : values.map((v) => v / magnitude);
 }
 
 /**
@@ -90,6 +99,10 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
 export class GeminiProvider implements AIProvider {
   readonly name = "gemini";
 
+  get embeddingCharBudget(): number {
+    return geminiCharBudget(this.options.embeddingModel);
+  }
+
   constructor(private readonly options: GeminiProviderOptions) {}
 
   private async generateJson(
@@ -149,12 +162,30 @@ export class GeminiProvider implements AIProvider {
     return { result: parsed.data, cost };
   }
 
+  /**
+   * Los modelos de embeddings de Gemini devuelven 3072 dimensiones por defecto, pero son embeddings
+   * Matryoshka: se les puede pedir un tamano menor con `outputDimensionality`. Se piden
+   * EMBEDDING_DIMENSIONS (768) para que el vector entre en la columna `video_memory.embedding` tal
+   * como esta, sin migrarla.
+   *
+   * Un embedding Matryoshka recortado deja de tener norma 1, asi que se re-normaliza. Con distancia
+   * coseno da igual (es invariante a la escala) y es la unica que usa el proyecto hoy, pero las demas
+   * metricas de pgvector si esperan un vector normalizado.
+   *
+   * `text-embedding-004` quedo RETIRADO y responde 404; el modelo vigente sale de
+   * GEMINI_EMBEDDING_MODEL.
+   */
   async embed(req: EmbeddingRequest): Promise<AICallResult<number[]>> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${this.options.apiKey}`;
+    const model = this.options.embeddingModel;
+    const text = truncateForEmbedding(req.text, geminiCharBudget(model));
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${this.options.apiKey}`;
     const response = await fetchWithRetry(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: { parts: [{ text: req.text }] } }),
+      body: JSON.stringify({
+        content: { parts: [{ text }] },
+        outputDimensionality: EMBEDDING_DIMENSIONS,
+      }),
     });
 
     if (!response.ok) {
@@ -162,12 +193,20 @@ export class GeminiProvider implements AIProvider {
     }
 
     const data = (await response.json()) as { embedding: { values: number[] } };
+    const values = normalizeVector(data.embedding.values);
+    if (values.length !== EMBEDDING_DIMENSIONS) {
+      throw new Error(
+        `Gemini devolvio ${values.length} dimensiones pero la columna espera ${EMBEDDING_DIMENSIONS}. Revisa GEMINI_EMBEDDING_MODEL.`,
+      );
+    }
+
     // El endpoint :embedContent no regresa usageMetadata; se aproxima 1 token ~ 4 caracteres.
-    const cost = estimateGeminiCost("text-embedding-004", {
-      inputTokens: Math.ceil(req.text.length / 4),
+    const cost = estimateGeminiCost(model, {
+      // Se cobra por lo que se ENVIO, no por el texto original: si se recorto, el resto nunca viajo.
+      inputTokens: Math.ceil(text.length / 4),
       outputTokens: 0,
     });
-    return { result: data.embedding.values, cost };
+    return { result: values, cost };
   }
 
   async healthCheck(): Promise<boolean> {

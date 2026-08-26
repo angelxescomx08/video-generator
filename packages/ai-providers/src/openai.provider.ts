@@ -1,5 +1,6 @@
 import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
 import { estimateOpenAiCost } from "./pricing";
+import { EMBEDDING_CHAR_BUDGETS, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
 import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
@@ -23,6 +24,7 @@ interface OpenAIProviderOptions {
  */
 export class OpenAIProvider implements AIProvider {
   readonly name = "openai";
+  readonly embeddingCharBudget = EMBEDDING_CHAR_BUDGETS.openai;
 
   constructor(private readonly options: OpenAIProviderOptions) {}
 
@@ -86,7 +88,9 @@ export class OpenAIProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: this.options.embeddingModel ?? "text-embedding-3-small",
-        input: req.text,
+        // text-embedding-3-* aguanta 8191 tokens, mucho mas que Ollama/Gemini, pero el tope existe
+        // igual y un guion de 30 minutos lo alcanzaria — ver embedding-input.ts.
+        input: truncateForEmbedding(req.text, EMBEDDING_CHAR_BUDGETS.openai),
       }),
     });
 

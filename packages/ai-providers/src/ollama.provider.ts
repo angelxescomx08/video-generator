@@ -1,5 +1,6 @@
 import { editDecisionListSchema, type EditDecisionList } from "@video-generator/types";
 import { ollamaCost } from "./pricing";
+import { EMBEDDING_CHAR_BUDGETS, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
 import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
@@ -54,6 +55,7 @@ ${MUSIC_SUGGESTION_INSTRUCTION}`;
 
 export class OllamaProvider implements AIProvider {
   readonly name = "ollama";
+  readonly embeddingCharBudget = EMBEDDING_CHAR_BUDGETS.ollama;
 
   constructor(private readonly options: OllamaProviderOptions) {}
 
@@ -118,10 +120,13 @@ ${EDL_JSON_INSTRUCTIONS}`;
   }
 
   async embed(req: EmbeddingRequest): Promise<AICallResult<number[]>> {
+    // Pasarse del contexto del modelo no trunca, revienta con 500 "the input length exceeds the
+    // context length" — ver embedding-input.ts.
+    const text = truncateForEmbedding(req.text, EMBEDDING_CHAR_BUDGETS.ollama);
     const response = await fetch(`${this.options.baseUrl}/api/embeddings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: this.options.embeddingModel, prompt: req.text }),
+      body: JSON.stringify({ model: this.options.embeddingModel, prompt: text }),
     });
 
     if (!response.ok) {

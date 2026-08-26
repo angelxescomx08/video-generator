@@ -132,6 +132,12 @@ export interface AICallResult<T> {
 
 export interface AIProvider {
   readonly name: string;
+  /**
+   * Caracteres que embed() manda como maximo antes de recortar. Lo expone el provider porque el
+   * limite depende del MODELO configurado, no solo del proveedor (gemini-embedding-001 admite 2048
+   * tokens y gemini-embedding-2, 8192). Sirve para avisar del recorte sin duplicar esa tabla fuera.
+   */
+  readonly embeddingCharBudget?: number;
   generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>>;
   generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>>;
   embed(req: EmbeddingRequest): Promise<AICallResult<number[]>>;

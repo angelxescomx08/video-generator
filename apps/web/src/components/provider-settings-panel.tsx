@@ -16,7 +16,7 @@ interface ProviderOption {
   needsCredit?: boolean;
 }
 
-const PROVIDER_OPTIONS: Record<"ai" | "tts" | "stock" | "music", ProviderOption[]> = {
+const PROVIDER_OPTIONS: Record<"ai" | "embedding" | "tts" | "stock" | "music", ProviderOption[]> = {
   ai: [
     { name: "ollama", label: "Ollama (local)", free: true },
     { name: "openai", label: "OpenAI", free: false },
@@ -63,13 +63,30 @@ const PROVIDER_OPTIONS: Record<"ai" | "tts" | "stock" | "music", ProviderOption[
     },
   ],
   music: [{ name: "jamendo", label: "Jamendo (Creative Commons)", free: true }],
+  // Anthropic no aparece: no tiene API de embeddings. OpenAI tampoco, porque sus vectores son de 1536
+  // dimensiones y la columna video_memory.embedding es de 768 — seleccionarlo fallaria al guardar.
+  embedding: [
+    { name: "gemini", label: "Google Gemini (text-embedding-004)", free: false },
+    { name: "ollama", label: "Ollama (nomic-embed-text, local)", free: true },
+  ],
 };
 
 const SECTION_TITLES: Record<keyof typeof PROVIDER_OPTIONS, string> = {
   ai: "Generacion de guion (IA)",
+  embedding: "Memoria semantica (embeddings)",
   tts: "Narracion (TTS)",
   stock: "Material de video (stock footage)",
   music: "Musica de fondo (sin copyright)",
+};
+
+/**
+ * Aviso por seccion, para las decisiones cuyo efecto no es evidente al hacer clic. El de embeddings
+ * es el importante: cambiar de modelo invalida los vectores ya guardados, porque dos modelos
+ * distintos viven en espacios vectoriales distintos aunque tengan la misma dimension.
+ */
+const SECTION_NOTES: Partial<Record<keyof typeof PROVIDER_OPTIONS, string>> = {
+  embedding:
+    "Solo se usa para la busqueda de memoria (recordar guiones y feedback pasados), no para escribir. Si no eliges nada aqui, se usa el mismo proveedor que la generacion de guion. Ojo: al cambiar de modelo, los vectores ya guardados dejan de ser comparables con los nuevos y hay que re-embeber la memoria existente.",
 };
 
 /** Los tipos que aceptan varios proveedores activos a la vez (se combinan para dar variedad). */
@@ -134,6 +151,9 @@ export function ProviderSettingsPanel({
           <div key={type} className="space-y-3">
             <div>
               <h2 className="font-semibold">{SECTION_TITLES[type]}</h2>
+              {SECTION_NOTES[type] && (
+                <p className="text-xs text-muted-foreground">{SECTION_NOTES[type]}</p>
+              )}
               {isMulti && (
                 <p className="text-xs text-muted-foreground">
                   Puedes activar varios a la vez: el worker los combina y va rotando cual busca primero en

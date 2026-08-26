@@ -1,6 +1,12 @@
 import { boolean, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-export const PROVIDER_TYPES = ["ai", "tts", "stock", "social", "music"] as const;
+/**
+ * `embedding` es un tipo aparte de `ai` porque no todo proveedor de texto sabe generar embeddings
+ * (Anthropic no tiene esa API) y porque la dimension del vector tiene que coincidir con la columna
+ * `video_memory.embedding`. Aun asi, no hace falta configurarlo: si no hay fila de `embedding`, se
+ * usa el proveedor de `ai` seleccionado — ver resolveEmbeddingProvider().
+ */
+export const PROVIDER_TYPES = ["ai", "embedding", "tts", "stock", "social", "music"] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 export const providerConfigs = pgTable("provider_configs", {

@@ -17,6 +17,14 @@ const envSchema = z.object({
 
   GOOGLE_GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default("gemini-flash-latest"),
+  /**
+   * Modelo de embeddings de Gemini. `text-embedding-004` fue RETIRADO (devuelve 404 en v1beta), asi
+   * que el default es el vigente. `gemini-embedding-2` acepta 8192 tokens de entrada — cuatro veces
+   * mas que nomic-embed-text — lo que reduce mucho el recorte de guiones largos.
+   * Ambos devuelven 3072 dimensiones por defecto, pero se les pide 768 para que encajen con la
+   * columna video_memory.embedding sin migrarla (ver gemini.provider.ts).
+   */
+  GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-2"),
 
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-5"),
