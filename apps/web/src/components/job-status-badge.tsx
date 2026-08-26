@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GenerationProgress } from "@/components/generation-progress";
@@ -9,21 +10,57 @@ import type { Video } from "@video-generator/db";
 const TERMINAL_STATUSES = new Set(["ready", "published", "failed"]);
 
 export function VideoStatusPanel({ initialVideo }: { initialVideo: Video }) {
+  const router = useRouter();
   const [video, setVideo] = useState(initialVideo);
   // Si ya hay un render activo, lo que corre es solo un re-render (p.ej. cambio de musica): el
   // guion, la voz y los clips ya estan hechos y no se vuelven a generar.
   const renderOnly = Boolean(initialVideo.currentVersionId);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  /**
+   * Status con el que acabo de terminar el trabajo, mientras esta pestana estuvo abierta.
+   *
+   * El refresco de los componentes de servidor es silencioso: aparece la seccion "Publicar" y ya, que
+   * es facil no notar si estabas mirando otra cosa. Este aviso hace explicito el momento en que
+   * termino, y solo se muestra si el cambio ocurrio con la pagina abierta — al recargar desaparece,
+   * porque ahi el estado ya se ve en el badge.
+   */
+  const [justFinished, setJustFinished] = useState<string | null>(null);
+
+  /**
+   * Adopta el estado que manda el servidor cuando cambia.
+   *
+   * `useState(initialVideo)` solo corre en el primer montaje, asi que sin esto el panel se quedaba
+   * congelado ante cualquier `router.refresh()`: al encolar un re-render el servidor ya decia
+   * "rendering" pero el panel seguia mostrando "ready" y nunca arrancaba el polling — el boton parecia
+   * no hacer nada.
+   *
+   * Comparar el status antes de asignar evita el bucle: `initialVideo` es un objeto nuevo en cada
+   * render, pero si el status coincide se devuelve `prev` y React no vuelve a renderizar.
+   */
+  useEffect(() => {
+    setVideo((prev) => (prev.status === initialVideo.status ? prev : initialVideo));
+  }, [initialVideo]);
 
   useEffect(() => {
     if (TERMINAL_STATUSES.has(video.status)) return;
     const interval = setInterval(async () => {
       const response = await fetch(`/api/videos/${video.id}`);
-      if (response.ok) setVideo(await response.json());
+      if (!response.ok) return;
+      const next: Video = await response.json();
+      setVideo(next);
+
+      // Al terminar hay que refrescar los componentes de SERVIDOR, no solo este panel: la seccion
+      // "Publicar", el historial de versiones y los costos se renderizan en el servidor y estaban
+      // quedandose con los datos del primer render. De ahi venia la sensacion de que la UI no avisaba:
+      // el badge cambiaba a "ready" pero el resto de la pagina seguia como si nada hasta recargar.
+      if (TERMINAL_STATUSES.has(next.status)) {
+        setJustFinished(next.status);
+        router.refresh();
+      }
     }, 3000);
     return () => clearInterval(interval);
-  }, [video.status, video.id]);
+  }, [video.status, video.id, router]);
 
   async function onRetry() {
     setRetrying(true);
@@ -58,6 +95,20 @@ export function VideoStatusPanel({ initialVideo }: { initialVideo: Video }) {
           </Button>
         )}
       </div>
+
+      {justFinished && (
+        <div
+          className={
+            justFinished === "failed"
+              ? "rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm"
+              : "rounded-md border border-border bg-muted/50 p-3 text-sm"
+          }
+        >
+          {justFinished === "failed"
+            ? "El proceso termino con error. El detalle esta abajo."
+            : "Listo, el proceso termino. La pagina ya se actualizo con el resultado."}
+        </div>
+      )}
 
       {retryError && <p className="text-sm text-destructive">{retryError}</p>}
 
