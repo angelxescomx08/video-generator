@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useVideoDataRefresh } from "@/lib/video-refresh";
 import type { VideoVersion } from "@video-generator/db";
 import type { CostItem, EditDecisionList } from "@video-generator/types";
 import {
@@ -98,6 +99,10 @@ export function VideoVersionsPanel({ videoId }: { videoId: string }) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId]);
+
+  // Este panel trae sus datos con fetch, asi que `router.refresh()` no lo toca: sin esto la lista de
+  // versiones se quedaba con la foto del primer montaje aunque el video ya tuviera una version nueva.
+  useVideoDataRefresh(videoId, load);
 
   async function onRestore(versionId: string) {
     if (!confirm("Activar esta version? El video pasara a usar este render.")) return;

@@ -102,9 +102,10 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
       </Section>
 
       {/* 5. Publicar y 6. Feedback */}
-      {/* Tambien visible en 'published': si ya se subio, el panel es donde se ve el enlace y se
-          advierte de un duplicado — ocultarlo dejaba esa informacion sin ningun lugar donde mirarse. */}
-      {(video.status === "ready" || video.status === "published") && (
+      {/* La condicion es "hay algo que subir", no un estado concreto: con 'published' aqui se ve el
+          enlace y el aviso de duplicado, con 'publishing' el cargador de la subida en curso, y con
+          'failed' el boton para reintentar. Atarlo a ready/published escondia justo esos casos. */}
+      {video.renderOutputPath && (
         <Section
           title="Publicar"
           description="Se sube como publico, marcado como no apto para ninos y declarado como contenido generado con IA."
@@ -116,6 +117,7 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
               label: `${a.platform}: ${a.accountLabel ?? a.externalAccountId ?? a.id}`,
             }))}
             published={publications}
+            videoStatus={video.status}
           />
         </Section>
       )}

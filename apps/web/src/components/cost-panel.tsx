@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useVideoDataRefresh } from "@/lib/video-refresh";
 import type { CostStage } from "@video-generator/types";
 import {
   formatMxn,
@@ -17,11 +18,22 @@ const FALLBACK_RATE = 18.5;
 export function CostPanel({ videoId }: { videoId: string }) {
   const [versions, setVersions] = useState<VersionWithCost[] | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch(`/api/videos/${videoId}/versions`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => setVersions(data));
+      .then((data) => setVersions(data))
+      .catch(() => {
+        // se reintenta en el proximo aviso de cambio
+      });
   }, [videoId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Igual que el panel de versiones: los costos vienen por fetch, asi que hay que recargarlos a mano
+  // cuando el video cambia (una version nueva cambia el total).
+  useVideoDataRefresh(videoId, load);
 
   if (!versions || versions.length === 0) return null;
 

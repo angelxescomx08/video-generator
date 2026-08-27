@@ -3,10 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Loader2, Plus, Upload, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { MusicUploadForm } from "@/components/music-upload-form";
+import { notifyVideoChanged } from "@/lib/video-refresh";
 import type { MusicTrack } from "@video-generator/db";
 import {
   BACKGROUND_MUSIC_LEVELS,
@@ -41,12 +44,24 @@ export function VideoMusicPanel({
   const [level, setLevel] = useState<string>("equilibrado");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  /**
+   * Canciones subidas desde aqui mismo. `tracks` viene del servidor y solo se actualiza cuando
+   * termina el `router.refresh()`; guardarlas tambien en local hace que aparezcan seleccionadas en
+   * el desplegable al instante, sin ese hueco en el que el Select se queda en blanco.
+   */
+  const [justUploaded, setJustUploaded] = useState<MusicTrack[]>([]);
+
+  const allTracks = [
+    ...justUploaded.filter((t) => !tracks.some((existing) => existing.id === t.id)),
+    ...tracks,
+  ];
 
   // Canciones cuyo genero coincide con lo que la IA sugirio para este video: atajo util cuando la
   // biblioteca ya tiene muchas pistas.
   const suggestedIds = new Set(
     suggestion
-      ? tracks
+      ? allTracks
           .filter(
             (t) =>
               t.genres.some((g) => suggestion.genres.includes(g as YoutubeAudioGenre)) ||
@@ -75,11 +90,20 @@ export function VideoMusicPanel({
         throw new Error(typeof body.error === "string" ? body.error : "No se pudo aplicar la musica");
       }
       router.refresh();
+      // El re-render ya esta encolado: avisa a los paneles client-side (versiones, costos) para que
+      // no se queden mostrando el estado anterior.
+      notifyVideoChanged(videoId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function onUploaded(track: MusicTrack) {
+    setJustUploaded((prev) => [track, ...prev]);
+    setSelected(track.id);
+    setUploading(false);
   }
 
   return (
@@ -92,21 +116,64 @@ export function VideoMusicPanel({
       </div>
 
       <div className="space-y-3 rounded-md border border-border p-3">
-        {tracks.length === 0 ? (
+        {/* Boton explicito de subida: antes solo habia un enlace a /music escondido en el texto de
+            "no tienes canciones", asi que con la biblioteca ya poblada no habia forma de subir una
+            nueva sin salir del video. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-muted-foreground">
-            No tienes canciones en la biblioteca.{" "}
-            <Link href="/music" className="underline hover:text-foreground">
-              Sube una
-            </Link>{" "}
-            para poder ponersela a este video.
+            {allTracks.length === 0
+              ? "Tu biblioteca esta vacia."
+              : `${allTracks.length} ${allTracks.length === 1 ? "cancion" : "canciones"} en tu biblioteca.`}
           </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={allTracks.length === 0 ? "default" : "outline"}
+              onClick={() => setUploading((v) => !v)}
+            >
+              {uploading ? (
+                <>
+                  <X className="mr-2 h-3.5 w-3.5" /> Cerrar
+                </>
+              ) : (
+                <>
+                  <Plus className="mr-2 h-3.5 w-3.5" /> Subir cancion
+                </>
+              )}
+            </Button>
+            <Link href="/music" className="text-xs text-muted-foreground underline hover:text-foreground">
+              Ver biblioteca
+            </Link>
+          </div>
+        </div>
+
+        {uploading && (
+          <div className="rounded-md border border-border bg-muted/30 p-3">
+            <p className="mb-3 flex items-center gap-2 text-sm font-medium">
+              <Upload className="h-3.5 w-3.5" /> Subir una cancion a la biblioteca
+            </p>
+            <MusicUploadForm compact onUploaded={onUploaded} />
+            <p className="mt-3 text-xs text-muted-foreground">
+              Al terminar queda seleccionada aqui; todavia hay que darle a &quot;Aplicar y crear
+              version&quot; para ponersela al video.
+            </p>
+          </div>
+        )}
+
+        {allTracks.length === 0 ? (
+          !uploading && (
+            <p className="text-sm text-muted-foreground">
+              Sube una cancion con el boton de arriba para poder ponersela a este video.
+            </p>
+          )
         ) : (
           <>
             <div className="space-y-2">
               <Label htmlFor="music-select">Cancion</Label>
               <Select id="music-select" value={selected} onChange={(e) => setSelected(e.target.value)}>
                 <option value={NO_MUSIC}>Sin musica (solo narracion)</option>
-                {tracks.map((t) => (
+                {allTracks.map((t) => (
                   <option key={t.id} value={t.id}>
                     {suggestedIds.has(t.id) ? "★ " : ""}
                     {t.title}
@@ -152,6 +219,7 @@ export function VideoMusicPanel({
 
             <div className="space-y-1">
               <Button type="button" size="sm" disabled={disabled || submitting || unchanged} onClick={onApply}>
+                {submitting && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
                 {submitting ? "Aplicando..." : "Aplicar y crear version"}
               </Button>
               <p className="text-xs text-muted-foreground">
