@@ -7,12 +7,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { sanitizePromptText, type SanitizedPrompt } from "@video-generator/types";
 
 export function VideoForm({ themes }: { themes: { id: string; name: string }[] }) {
   const router = useRouter();
   const [themeId, setThemeId] = useState(themes[0]?.id ?? "");
   const [format, setFormat] = useState<"long" | "short">("short");
   const [topic, setTopic] = useState("");
+  // Mientras esto sea null la idea todavia no paso por el limpiador y no se puede generar.
+  const [cleaned, setCleaned] = useState<SanitizedPrompt | null>(null);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [durationSeconds, setDurationSeconds] = useState(90);
   const idea = topic.trim();
@@ -20,8 +23,21 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function onTopicChange(value: string) {
+    setTopic(value);
+    // Cualquier edicion posterior invalida la limpieza: hay que volver a pasarla.
+    setCleaned(null);
+  }
+
+  function onClean() {
+    const result = sanitizePromptText(topic);
+    setTopic(result.text); // el usuario ve el cambio en el propio textarea
+    setCleaned(result);
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!cleaned) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -31,7 +47,7 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
         body: JSON.stringify({
           themeId,
           format,
-          topic: idea || undefined,
+          topic: cleaned.text || undefined,
           captionsEnabled,
           targetDurationSeconds: Math.min(Math.max(durationSeconds, 10), maxDuration),
         }),
@@ -90,7 +106,7 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
         <Textarea
           id="idea"
           value={topic}
-          onChange={(e) => setTopic(e.target.value)}
+          onChange={(e) => onTopicChange(e.target.value)}
           required
           rows={6}
           className="min-h-[140px] resize-y"
@@ -99,6 +115,46 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
         <p className="text-xs text-muted-foreground">
           Mientras mas contexto des, mejor sera el guion generado.
         </p>
+
+        <div className="flex items-center gap-3">
+          <Button type="button" variant="outline" size="sm" onClick={onClean} disabled={!idea || !!cleaned}>
+            {cleaned ? "Contenido limpio" : "Limpiar contenido"}
+          </Button>
+          {!cleaned && idea && (
+            <span className="text-xs text-muted-foreground">
+              Paso obligatorio antes de generar: quita emojis y caracteres que solo gastan tokens.
+            </span>
+          )}
+        </div>
+
+        {cleaned && (
+          <div className="rounded-lg border border-border bg-card p-3 text-xs">
+            {cleaned.changed ? (
+              <>
+                <p className="font-medium text-foreground">Texto limpiado y actualizado arriba.</p>
+                <ul className="mt-2 space-y-1 text-muted-foreground">
+                  <li>
+                    Caracteres: {cleaned.originalChars} → {cleaned.cleanedChars} ({cleaned.removedChars}{" "}
+                    menos)
+                  </li>
+                  <li>
+                    Tokens de entrada estimados: {cleaned.estimatedTokensBefore} →{" "}
+                    {cleaned.estimatedTokensAfter} ({cleaned.estimatedTokensSaved} ahorrados)
+                  </li>
+                  {cleaned.emojisRemoved > 0 && <li>Emojis quitados: {cleaned.emojisRemoved}</li>}
+                  {cleaned.invisiblesRemoved > 0 && (
+                    <li>Caracteres invisibles quitados: {cleaned.invisiblesRemoved}</li>
+                  )}
+                </ul>
+              </>
+            ) : (
+              <p className="text-muted-foreground">
+                El texto ya estaba limpio, no habia nada que quitar (~{cleaned.estimatedTokensAfter}{" "}
+                tokens de entrada).
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3 rounded-lg border border-border bg-card p-4">
@@ -147,9 +203,16 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <Button type="submit" disabled={submitting || !themeId || !idea}>
-        {submitting ? "Creando..." : "Generar video"}
-      </Button>
+      <div className="space-y-2">
+        <Button type="submit" disabled={submitting || !themeId || !idea || !cleaned}>
+          {submitting ? "Creando..." : "Generar video"}
+        </Button>
+        {idea && !cleaned && (
+          <p className="text-xs text-muted-foreground">
+            Limpia el contenido de la idea para habilitar la generacion.
+          </p>
+        )}
+      </div>
     </form>
   );
 }
