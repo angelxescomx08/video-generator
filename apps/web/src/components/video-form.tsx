@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { sanitizePromptText, type SanitizedPrompt } from "@video-generator/types";
+import { sanitizePromptText, diffText, type SanitizedPrompt } from "@video-generator/types";
 
 export function VideoForm({ themes }: { themes: { id: string; name: string }[] }) {
   const router = useRouter();
@@ -16,6 +16,8 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
   const [topic, setTopic] = useState("");
   // Mientras esto sea null la idea todavia no paso por el limpiador y no se puede generar.
   const [cleaned, setCleaned] = useState<SanitizedPrompt | null>(null);
+  // Texto tal cual estaba en el textarea justo antes de limpiar, para poder mostrar el diff.
+  const [preClean, setPreClean] = useState("");
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [durationSeconds, setDurationSeconds] = useState(90);
   const idea = topic.trim();
@@ -31,9 +33,15 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
 
   function onClean() {
     const result = sanitizePromptText(topic);
+    setPreClean(topic);
     setTopic(result.text); // el usuario ve el cambio en el propio textarea
     setCleaned(result);
   }
+
+  const diff = useMemo(
+    () => (cleaned?.changed ? diffText(preClean, cleaned.text) : []),
+    [cleaned, preClean],
+  );
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -132,6 +140,33 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
             {cleaned.changed ? (
               <>
                 <p className="font-medium text-foreground">Texto limpiado y actualizado arriba.</p>
+                <p className="mt-2 mb-1 text-muted-foreground">
+                  Que cambio (
+                  <span className="text-red-600 line-through dark:text-red-400">quitado</span> /{" "}
+                  <span className="text-emerald-600 dark:text-emerald-400">agregado</span>):
+                </p>
+                <div className="whitespace-pre-wrap rounded-md border border-border bg-background p-2 leading-relaxed">
+                  {diff.map((seg, idx) => {
+                    if (seg.type === "equal") return <span key={idx}>{seg.value}</span>;
+                    if (seg.type === "removed")
+                      return (
+                        <span
+                          key={idx}
+                          className="rounded-sm bg-red-500/10 text-red-600 line-through dark:text-red-400"
+                        >
+                          {seg.value}
+                        </span>
+                      );
+                    return (
+                      <span
+                        key={idx}
+                        className="rounded-sm bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      >
+                        {seg.value}
+                      </span>
+                    );
+                  })}
+                </div>
                 <ul className="mt-2 space-y-1 text-muted-foreground">
                   <li>
                     Caracteres: {cleaned.originalChars} → {cleaned.cleanedChars} ({cleaned.removedChars}{" "}
