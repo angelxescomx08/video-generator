@@ -2,7 +2,7 @@ import type { ProviderCost } from "@video-generator/types";
 
 /** Pixabay/Pexels son gratis para uso comercial, sin costo por clip. */
 export function freeStockCost(providerName: string): ProviderCost {
-  return { providerType: "stock", providerName, isFree: true, isLocal: false, amountUsd: 0 };
+  return { providerType: "stock", providerName, isFree: true, isLocal: false, amountUsd: 0, units: 1, unitKind: "clips" };
 }
 
 /**
@@ -17,6 +17,8 @@ export function unpricedPremiumStockCost(providerName: string): ProviderCost {
     isFree: false,
     isLocal: false,
     amountUsd: 0,
+    units: 1,
+    unitKind: "clips",
     detail: "Sin precio publico por API (requiere cotizacion) — descarga aun no implementada en este adaptador",
   };
 }

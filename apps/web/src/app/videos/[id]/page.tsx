@@ -132,6 +132,19 @@ export default async function VideoDetailPage({ params }: { params: Promise<{ id
         description="Como le fue una vez publicado. Es la senal mas fuerte que tiene la IA, porque son datos de la audiencia y no una opinion."
       >
         <Link
+          href={`/videos/${video.id}/analytics`}
+          className="flex items-center justify-between gap-4 rounded-md border border-border p-4 transition-colors hover:bg-muted/50"
+        >
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Ver las analiticas</p>
+            <p className="text-xs text-muted-foreground">
+              Curva de retencion, evolucion de las vistas, de donde vino la audiencia y cuanto costo
+              producirlo — con la comparacion contra la media del canal.
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </Link>
+        <Link
           href={`/videos/${video.id}/performance`}
           className="flex items-center justify-between gap-4 rounded-md border border-border p-4 transition-colors hover:bg-muted/50"
         >

@@ -85,7 +85,7 @@ export class OllamaProvider implements AIProvider {
   async generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>> {
     const userPrompt = buildScriptUserPrompt(req, SCRIPT_JSON_INSTRUCTIONS);
     const raw = await this.chatJson(req.systemPrompt, userPrompt);
-    return { result: raw as ScriptGenerationResult, cost: ollamaCost() };
+    return { result: raw as ScriptGenerationResult, cost: ollamaCost(this.options.model) };
   }
 
   async generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>> {
@@ -116,7 +116,7 @@ ${EDL_JSON_INSTRUCTIONS}`;
     if (!parsed.success) {
       throw new Error(`Ollama returned an invalid EDL: ${parsed.error.message}`);
     }
-    return { result: parsed.data, cost: ollamaCost() };
+    return { result: parsed.data, cost: ollamaCost(this.options.model) };
   }
 
   async embed(req: EmbeddingRequest): Promise<AICallResult<number[]>> {
@@ -134,7 +134,7 @@ ${EDL_JSON_INSTRUCTIONS}`;
     }
 
     const data = (await response.json()) as { embedding: number[] };
-    return { result: data.embedding, cost: ollamaCost() };
+    return { result: data.embedding, cost: ollamaCost(this.options.embeddingModel) };
   }
 
   async healthCheck(): Promise<boolean> {

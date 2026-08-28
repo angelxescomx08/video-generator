@@ -18,6 +18,20 @@
     --destructive-foreground: 210 40% 98%;
     --border: 214 32% 91%;
     --radius: 0.5rem;
+
+    /* Paleta de series para las graficas. Ocho no: cinco, que es lo maximo que llega a haber en un
+       corte de este producto (las cinco etapas de costo). El ORDEN no es decorativo — es el
+       mecanismo de seguridad para daltonismo: validada con el script de la guia de dataviz contra
+       el fondo real de la app (#ffffff claro / #0f172a oscuro) pasa banda de luminosidad, piso de
+       croma, separacion CVD (peor par adyacente 9.1) y piso de vision normal (19.6).
+       Reordenar o meter un sexto color invalida esa comprobacion: hay que volver a correrla.
+       Van en hex y no en el `H S% L%` del resto de tokens justamente para que sean los valores
+       validados exactos, sin el redondeo que introduce convertirlos a HSL entero. */
+    --chart-1: #2a78d6;
+    --chart-2: #eb6834;
+    --chart-3: #1baf7a;
+    --chart-4: #eda100;
+    --chart-5: #e87ba4;
   }
 
   .dark {
@@ -34,6 +48,14 @@
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
     --border: 217 33% 17%;
+
+    /* Los mismos cinco tonos re-escalonados para el fondo oscuro, no un volteo automatico del
+       claro: validados aparte contra #0f172a, donde ademas los cinco superan 3:1 de contraste. */
+    --chart-1: #3987e5;
+    --chart-2: #d95926;
+    --chart-3: #199e70;
+    --chart-4: #c98500;
+    --chart-5: #d55181;
   }
 }
 

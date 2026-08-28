@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
 import { platformAccounts, type Platform } from "./platform-accounts";
 import { videos } from "./videos";
 
@@ -27,6 +27,10 @@ export const publishedVideos = pgTable(
       table.platformAccountId,
       table.externalVideoId,
     ),
+    /** Todo el pipeline de analiticas entra por aqui: video -> su publicacion -> sus snapshots. */
+    byVideo: index("published_videos_video_idx").on(table.videoId),
+    /** El poll cada 6h y las analiticas globales solo miran los vinculos vivos. */
+    byStatus: index("published_videos_status_idx").on(table.status),
   }),
 );
 

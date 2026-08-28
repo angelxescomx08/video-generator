@@ -73,9 +73,12 @@ function costFromTable(
   return {
     providerType: "ai",
     providerName,
+    model,
     isFree: false,
     isLocal: false,
     amountUsd,
+    units: usage.inputTokens + usage.outputTokens,
+    unitKind: "tokens",
     detail: `${usage.inputTokens + usage.outputTokens} tokens (${model})`,
   };
 }
@@ -92,7 +95,12 @@ export function estimateAnthropicCost(model: string, usage: TokenUsage): Provide
   return costFromTable("anthropic", model, usage, ANTHROPIC_PRICING, ANTHROPIC_DEFAULT);
 }
 
-/** Ollama corre local via Docker (OLLAMA_MODEL) — no importa el conteo de tokens, siempre es gratis. */
-export function ollamaCost(): ProviderCost {
-  return { providerType: "ai", providerName: "ollama", isFree: true, isLocal: true, amountUsd: 0 };
+/**
+ * Ollama corre local via Docker (OLLAMA_MODEL) — no importa el conteo de tokens, siempre es gratis.
+ *
+ * Aun asi lleva `model`: las analiticas de costo comparan modelos entre si, y un modelo local que
+ * cuesta $0 es justamente la comparacion que interesa hacer contra uno de pago.
+ */
+export function ollamaCost(model?: string): ProviderCost {
+  return { providerType: "ai", providerName: "ollama", model, isFree: true, isLocal: true, amountUsd: 0 };
 }

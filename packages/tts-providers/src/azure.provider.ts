@@ -54,7 +54,7 @@ export class AzureTTSProvider implements TTSProvider {
     await mkdir(path.dirname(destPath), { recursive: true });
     await writeFile(destPath, audioBuffer);
 
-    return { audioFilePath: destPath, durationSeconds: 0, cost: azureTtsCost(req.text.length) };
+    return { audioFilePath: destPath, durationSeconds: 0, cost: azureTtsCost(req.text.length, voice) };
   }
 
   async healthCheck(): Promise<boolean> {

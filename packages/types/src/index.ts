@@ -5,6 +5,7 @@ export * from "./prompt-diff";
 export * from "./stock";
 export * from "./music";
 export * from "./cost";
+export * from "./performance-learning";
 export * from "./youtube-audio-library";
 export * from "./audio-mix";
 export * from "./youtube-categories";

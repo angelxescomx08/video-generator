@@ -4,7 +4,7 @@ import type { Theme, Video } from "@video-generator/db";
 import type { ProviderCost } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import { getAvoidFacts, getRecentFeedback, retrieveMemoryContext } from "../memory/retrieve";
-import { getPerformanceLearnings } from "../memory/performance";
+import { getPerformanceLearnings } from "@video-generator/analytics";
 
 const REPEATABLE_FACT_TYPES = ["bible_verse_used", "quote_used", "title_used"] as const;
 

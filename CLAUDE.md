@@ -36,6 +36,9 @@ No hay suite de tests todavía — al agregar una, preferir tests unitarios puro
 | Cambiar cómo se arma el video final (efectos, transiciones) | `apps/worker/src/ffmpeg/edl-to-ffmpeg.ts` y `apps/worker/src/ffmpeg/filters/*.ts` |
 | Cambiar el formato de la Edit Decision List | `packages/types/src/edl.ts` (zod schema — validado en `build-edl.handler.ts`) |
 | Cambiar cómo se recupera memoria/contexto para el prompt | `apps/worker/src/memory/retrieve.ts` y `prompts/script-prompt.builder.ts` |
+| Cambiar qué aprende la IA del rendimiento pasado | `packages/analytics/src/learnings.ts` (+ `video-attributes.ts`) |
+| Agregar un corte de analíticas o de costos | `packages/analytics/src/*-queries.ts` |
+| Dibujar una gráfica nueva | `apps/web/src/components/charts/*` |
 | Tocar la UI | `apps/web/src/app/**` (App Router) y `apps/web/src/components/**` |
 | Variables de entorno | `packages/config/src/env.ts` (zod schema — agregar ahí antes de usar `process.env` en cualquier otro lado) |
 
@@ -61,6 +64,19 @@ No hay suite de tests todavía — al agregar una, preferir tests unitarios puro
 - `apps/web` es el único proceso con acceso HTTP público; nunca debe ejecutar ffmpeg ni llamar
   directamente a un LLM/TTS de forma bloqueante en un request — eso es trabajo de `apps/worker`
   vía una cola.
+- Toda agregación de analíticas vive en `@video-generator/analytics` y **agrega en Postgres, con una
+  sola consulta por función**. La regla no es estética: `video_stats` crece sin techo (un snapshot
+  cada 6h por video publicado, para siempre) y `cost_breakdown` es un `jsonb` por versión, así que
+  traer filas para reducirlas en JS hace que el tiempo de respuesta crezca con la antigüedad del
+  canal. Al agregar un corte nuevo, sigue el patrón: `DISTINCT ON` para "lo último de cada video",
+  `jsonb_to_recordset` para desarmar costos, y una ventana de días en todo lo que mire histórico.
+- Las pantallas de analíticas son componentes de servidor que lanzan sus consultas en **un solo
+  `Promise.all`**, no en `await` encadenados: cada await suelto es un viaje más a la base antes de
+  poder pintar. Las gráficas son SVG renderizado en el servidor (`components/charts/`), sin librería
+  de gráficas — por eso `/analytics/costs` y `/videos/[id]/analytics` bajan ~173 B de JS al cliente.
+- Al tocar la paleta de series (`--chart-*` en `globals.css`), vuelve a correr el validador de la
+  guía de dataviz contra los fondos reales de la app: el orden de los colores es el mecanismo que
+  garantiza que se distingan bajo daltonismo, no una decisión estética.
 
 ## Patrón adaptador (repetido en ai/tts/stock/social-providers)
 

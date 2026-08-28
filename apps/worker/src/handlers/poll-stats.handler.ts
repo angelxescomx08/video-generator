@@ -8,7 +8,7 @@ import type {
 } from "@video-generator/social-providers";
 import { MIN_DAYS_FOR_LEARNING, MIN_VIEWS_FOR_LEARNING } from "@video-generator/types";
 import { eq } from "drizzle-orm";
-import { describeVideoAttributes, extractVideoAttributes } from "../memory/video-attributes";
+import { describeVideoAttributes, extractVideoAttributes } from "@video-generator/analytics";
 import { resolveAccessToken } from "../social/access-token";
 import { logger } from "../util/logger";
 
@@ -100,7 +100,7 @@ export async function handlePollStats(payload: PollStatsPayload): Promise<void> 
  * Los atributos son la parte que importa: sin ellos el feedback dice "a este video le fue mal", que
  * es intransferible a otro tema. Con ellos dice "a este video con gancho narrado y 10 escenas le fue
  * mal", que si se puede aplicar en cualquier tema. El analisis agregado vive en
- * memory/performance.ts; esto es la nota cualitativa que acompana a ese analisis.
+ * @video-generator/analytics; esto es la nota cualitativa que acompana a ese analisis.
  */
 async function maybeDeriveFeedbackFromStats(
   videoId: string,

@@ -43,9 +43,14 @@ export default async function VideoPerformancePage({ params }: { params: Promise
           <ArrowLeft className="h-3.5 w-3.5" />
           Volver al video
         </Link>
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold">Como le fue</h1>
-          <p className="text-sm text-muted-foreground">{video.title ?? "Video sin titulo"}</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold">Como le fue</h1>
+            <p className="text-sm text-muted-foreground">{video.title ?? "Video sin titulo"}</p>
+          </div>
+          <Link href={`/videos/${id}/analytics`} className="text-xs text-muted-foreground underline hover:text-foreground">
+            Ver las graficas
+          </Link>
         </div>
       </div>
 

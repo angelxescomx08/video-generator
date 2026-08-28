@@ -58,14 +58,22 @@ export async function handleGenerateTts(payload: VideoJobPayload): Promise<void>
       .set({ sceneAudio, updatedAt: new Date() })
       .where(eq(videos.id, videoId));
 
+    // Las escenas se cobran una por una pero se guardan como un solo CostItem: es el costo de "la
+    // voz de este video". La voz y los caracteres se conservan al colapsar porque son las dos
+    // dimensiones con las que las analiticas comparan modelos de TTS entre si (precio por caracter).
+    const voices = [...new Set(sceneCosts.map((c) => c.model).filter(Boolean))] as string[];
+    const ttsChars = sceneCosts.reduce((sum, c) => sum + (c.units ?? 0), 0);
     const ttsCost: CostItem = {
       stage: "tts",
       providerType: "tts",
       providerName: sceneCosts[0]?.providerName ?? provider.name,
+      model: voices.length > 0 ? voices.sort().join(" + ") : undefined,
       isFree: sceneCosts.every((c) => c.isFree),
       isLocal: sceneCosts.every((c) => c.isLocal),
       amountUsd: sceneCosts.reduce((sum, c) => sum + c.amountUsd, 0),
-      detail: `${scenes.length} escenas`,
+      units: ttsChars > 0 ? ttsChars : undefined,
+      unitKind: ttsChars > 0 ? "chars" : undefined,
+      detail: `${scenes.length} escenas${ttsChars > 0 ? `, ${ttsChars} caracteres` : ""}`,
     };
 
     logger.info(`TTS generated for video ${videoId}`, {

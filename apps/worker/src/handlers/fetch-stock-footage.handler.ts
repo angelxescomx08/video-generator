@@ -174,6 +174,8 @@ export async function handleFetchStockFootage(payload: VideoJobPayload): Promise
       isFree: clipCosts.every((c) => c.isFree),
       isLocal: clipCosts.every((c) => c.isLocal),
       amountUsd: clipCosts.reduce((sum, c) => sum + c.amountUsd, 0),
+      units: sceneClips.length,
+      unitKind: "clips",
       detail: `${scenes.length} escenas`,
     };
 

@@ -1,7 +1,7 @@
 import { db, publishedVideos, videoStats, videos } from "@video-generator/db";
-import type { PerformanceLearning } from "@video-generator/ai-providers";
+import type { PerformanceBucket, PerformanceLearning } from "@video-generator/types";
 import { MIN_DAYS_FOR_LEARNING, MIN_VIEWS_FOR_LEARNING } from "@video-generator/types";
-import { eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { extractVideoAttributes, type VideoAttributes } from "./video-attributes";
 
 /**
@@ -15,6 +15,10 @@ import { extractVideoAttributes, type VideoAttributes } from "./video-attributes
  * - Deterministico (agregacion en SQL/JS, no embeddings), porque una correlacion se calcula, no se
  *   recuerda por similitud semantica. Ademas asi el resultado siempre esta fresco y trae su tamano
  *   de muestra, que es lo que permite al prompt distinguir un patron solido de una casualidad.
+ *
+ * Vive en un paquete compartido y no en el worker porque tiene dos consumidores: el prompt del
+ * guion (apps/worker) y la pantalla de analiticas (apps/web), que le muestra al usuario exactamente
+ * las mismas lecciones que se le estan pasando al modelo.
  */
 
 /** Videos minimos por grupo para comparar. Con menos, la diferencia es anecdota, no patron. */
@@ -33,7 +37,7 @@ interface Outcomes {
   avgViewPercentage?: number;
 }
 
-interface Sample {
+export interface LearningSample {
   attrs: VideoAttributes;
   outcomes: Outcomes;
 }
@@ -118,14 +122,19 @@ const DIMENSIONS: readonly Dimension[] = [
  * datos es mejor no decirle nada al modelo que darle una correlacion de dos videos.
  */
 export async function getPerformanceLearnings(): Promise<PerformanceLearning[]> {
-  const samples = await loadSamples();
-  const learnings: PerformanceLearning[] = [];
+  return analyzeLearnings(await loadLearningSamples());
+}
 
+/**
+ * La parte pura: dadas las muestras, saca las lecciones. Separada de la carga para poder testearla
+ * sin base de datos, y para que la UI pueda reutilizar las mismas muestras que ya trajo.
+ */
+export function analyzeLearnings(samples: LearningSample[]): PerformanceLearning[] {
+  const learnings: PerformanceLearning[] = [];
   for (const dimension of DIMENSIONS) {
     const learning = analyzeDimension(dimension, samples);
     if (learning) learnings.push(learning);
   }
-
   return learnings.sort((a, b) => b.deltaPoints - a.deltaPoints).slice(0, MAX_LEARNINGS);
 }
 
@@ -133,12 +142,16 @@ export async function getPerformanceLearnings(): Promise<PerformanceLearning[]> 
  * Un snapshot por video publicado (el mas reciente), ya filtrado a los que son senal utilizable.
  * Los descartes son deliberados: un video de dos dias todavia se esta distribuyendo y uno con 30
  * vistas da porcentajes que se mueven entero con un solo espectador.
+ *
+ * El "mas reciente por video" se resuelve con `DISTINCT ON` en Postgres y no en JS: la version
+ * anterior traia TODOS los snapshots historicos de TODOS los videos para quedarse con uno de cada
+ * grupo, lo que a mil videos son cientos de miles de filas (con su `raw_payload` y su curva de
+ * retencion) cruzando la red en cada generacion de guion. Ahora la base devuelve una fila por
+ * video, y el indice `video_stats_published_captured_idx` la encuentra sin ordenar la tabla entera.
  */
-async function loadSamples(): Promise<Sample[]> {
+export async function loadLearningSamples(): Promise<LearningSample[]> {
   const rows = await db
-    .select({
-      publishedVideoId: videoStats.publishedVideoId,
-      capturedAt: videoStats.capturedAt,
+    .selectDistinctOn([videoStats.publishedVideoId], {
       videoAgeDays: videoStats.videoAgeDays,
       views: videoStats.views,
       engagedViews: videoStats.engagedViews,
@@ -149,18 +162,11 @@ async function loadSamples(): Promise<Sample[]> {
     .from(videoStats)
     .innerJoin(publishedVideos, eq(videoStats.publishedVideoId, publishedVideos.id))
     .innerJoin(videos, eq(publishedVideos.videoId, videos.id))
-    .where(eq(publishedVideos.status, "published"));
+    .where(eq(publishedVideos.status, "published"))
+    .orderBy(videoStats.publishedVideoId, desc(videoStats.capturedAt));
 
-  // Solo el snapshot mas reciente de cada video: los anteriores son el mismo video medido antes, y
-  // contarlos varias veces le daria a un video con mucho historial mas peso que a los demas.
-  const latest = new Map<string, (typeof rows)[number]>();
+  const samples: LearningSample[] = [];
   for (const row of rows) {
-    const current = latest.get(row.publishedVideoId);
-    if (!current || row.capturedAt > current.capturedAt) latest.set(row.publishedVideoId, row);
-  }
-
-  const samples: Sample[] = [];
-  for (const row of latest.values()) {
     const sampleSize = row.engagedViews ?? row.views ?? 0;
     if (sampleSize < MIN_VIEWS_FOR_LEARNING) continue;
     if (row.videoAgeDays !== null && row.videoAgeDays < MIN_DAYS_FOR_LEARNING) continue;
@@ -176,8 +182,57 @@ async function loadSamples(): Promise<Sample[]> {
   return samples;
 }
 
+export interface LearningReadiness {
+  publishedVideos: number;
+  usableSamples: number;
+  minViews: number;
+  minDays: number;
+}
+
+/**
+ * Cuantos videos publicados hay contra cuantos pasan el filtro de muestra utilizable.
+ *
+ * Es lo que la UI necesita para explicar un tablero vacio: "todavia no hay lecciones" y "no hay
+ * lecciones porque solo 2 de tus 9 videos llevan los dias suficientes" son dos mensajes distintos, y
+ * solo el segundo dice que hacer. Se resuelve con dos contadores agregados, sin traer ninguna fila.
+ */
+export async function getLearningReadiness(): Promise<LearningReadiness> {
+  const latest = db
+    .selectDistinctOn([videoStats.publishedVideoId], {
+      publishedVideoId: videoStats.publishedVideoId,
+      videoAgeDays: videoStats.videoAgeDays,
+      views: videoStats.views,
+      engagedViews: videoStats.engagedViews,
+      avgViewPercentage: videoStats.avgViewPercentage,
+      retentionAtStartPercentage: videoStats.retentionAtStartPercentage,
+    })
+    .from(videoStats)
+    .innerJoin(publishedVideos, eq(videoStats.publishedVideoId, publishedVideos.id))
+    .where(eq(publishedVideos.status, "published"))
+    .orderBy(videoStats.publishedVideoId, desc(videoStats.capturedAt))
+    .as("latest");
+
+  const [row] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      usable: sql<number>`count(*) filter (
+        where coalesce(${latest.engagedViews}, ${latest.views}, 0) >= ${MIN_VIEWS_FOR_LEARNING}
+          and coalesce(${latest.videoAgeDays}, ${MIN_DAYS_FOR_LEARNING}) >= ${MIN_DAYS_FOR_LEARNING}
+          and (${latest.retentionAtStartPercentage} is not null or ${latest.avgViewPercentage} is not null)
+      )::int`,
+    })
+    .from(latest);
+
+  return {
+    publishedVideos: row?.total ?? 0,
+    usableSamples: row?.usable ?? 0,
+    minViews: MIN_VIEWS_FOR_LEARNING,
+    minDays: MIN_DAYS_FOR_LEARNING,
+  };
+}
+
 /** Compara los grupos de una dimension y emite una leccion si la brecha es real y no anecdotica. */
-function analyzeDimension(dimension: Dimension, samples: Sample[]): PerformanceLearning | null {
+function analyzeDimension(dimension: Dimension, samples: LearningSample[]): PerformanceLearning | null {
   const buckets = new Map<string, number[]>();
 
   for (const sample of samples) {
@@ -190,9 +245,9 @@ function analyzeDimension(dimension: Dimension, samples: Sample[]): PerformanceL
     buckets.set(key, list);
   }
 
-  const usable = [...buckets.entries()]
+  const usable: PerformanceBucket[] = [...buckets.entries()]
     .filter(([, values]) => values.length >= MIN_SAMPLES_PER_BUCKET)
-    .map(([key, values]) => ({ key, mean: mean(values), count: values.length }))
+    .map(([label, values]) => ({ label, mean: mean(values), count: values.length }))
     .sort((a, b) => b.mean - a.mean);
 
   // Hacen falta al menos dos grupos comparables: con uno solo no hay contra que medir.
@@ -205,10 +260,14 @@ function analyzeDimension(dimension: Dimension, samples: Sample[]): PerformanceL
 
   return {
     dimension: dimension.label,
-    insight: `${capitalize(best.key)} rinde mejor que ${worst.key}: ${best.mean.toFixed(0)}% vs ${worst.mean.toFixed(0)}% de ${dimension.outcomeLabel}.`,
-    recommendation: `Prefiere ${best.key}; evita ${worst.key}.`,
+    insight: `${capitalize(best.label)} rinde mejor que ${worst.label}: ${best.mean.toFixed(0)}% vs ${worst.mean.toFixed(0)}% de ${dimension.outcomeLabel}.`,
+    recommendation: `Prefiere ${best.label}; evita ${worst.label}.`,
     deltaPoints,
     sampleSize: usable.reduce((total, bucket) => total + bucket.count, 0),
+    // Los grupos completos viajan con la leccion para que la UI pueda dibujar la comparacion. El
+    // prompt sigue usando solo `insight`/`recommendation`, asi que esto no le cuesta tokens.
+    buckets: usable,
+    outcomeLabel: dimension.outcomeLabel,
   };
 }
 

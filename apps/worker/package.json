@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@video-generator/ai-providers": "workspace:*",
+    "@video-generator/analytics": "workspace:*",
     "@video-generator/config": "workspace:*",
     "@video-generator/db": "workspace:*",
     "@video-generator/music-providers": "workspace:*",

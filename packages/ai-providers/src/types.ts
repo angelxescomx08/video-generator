@@ -1,5 +1,5 @@
 import { YOUTUBE_AUDIO_GENRES, YOUTUBE_AUDIO_MOODS } from "@video-generator/types";
-import type { EditDecisionList, ProviderCost } from "@video-generator/types";
+import type { EditDecisionList, PerformanceLearning, ProviderCost } from "@video-generator/types";
 import type { StockClipRef } from "@video-generator/types";
 
 export interface ScriptScene {
@@ -27,24 +27,16 @@ export interface FeedbackSummary {
 
 /**
  * Una correlacion medida entre como se hizo un video y como le fue, calculada sobre TODO el canal
- * (no por tema). La calcula apps/worker/src/memory/performance.ts a partir de las estadisticas
- * reales de YouTube, no la inventa el modelo.
+ * (no por tema). La calcula `@video-generator/analytics` a partir de las estadisticas reales de
+ * YouTube, no la inventa el modelo.
  *
  * Lleva `sampleSize` y `deltaPoints` a proposito: el prompt le dice al modelo cuantos videos
  * respaldan cada patron, para que no trate una diferencia de 3 videos como una ley.
+ *
+ * La forma vive en `@video-generator/types` porque tambien la dibuja la UI de analiticas; aqui solo
+ * se re-exporta para no romper a quien ya la importaba desde este paquete.
  */
-export interface PerformanceLearning {
-  /** Que se comparo (p.ej. "tipo de gancho"). */
-  dimension: string;
-  /** El patron observado, con sus numeros. */
-  insight: string;
-  /** Que hacer con eso al escribir el proximo guion. */
-  recommendation: string;
-  /** Puntos porcentuales de diferencia entre el mejor y el peor grupo. */
-  deltaPoints: number;
-  /** Videos que respaldan la comparacion. */
-  sampleSize: number;
-}
+export type { PerformanceLearning } from "@video-generator/types";
 
 export interface ScriptGenerationRequest {
   themeSlug: string;

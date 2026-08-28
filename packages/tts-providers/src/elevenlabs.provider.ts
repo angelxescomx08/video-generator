@@ -51,7 +51,7 @@ export class ElevenLabsProvider implements TTSProvider {
     await writeFile(destPath, audioBuffer);
 
     // ElevenLabs doesn't return duration directly; worker estimates/derives it via ffprobe downstream.
-    return { audioFilePath: destPath, durationSeconds: 0, cost: elevenLabsCost(req.text.length) };
+    return { audioFilePath: destPath, durationSeconds: 0, cost: elevenLabsCost(req.text.length, voiceId) };
   }
 
   async healthCheck(): Promise<boolean> {

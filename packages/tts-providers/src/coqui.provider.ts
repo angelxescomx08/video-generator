@@ -41,7 +41,7 @@ export class CoquiProvider implements TTSProvider {
     return {
       audioFilePath: destPath,
       durationSeconds: readWavDurationSeconds(audioBuffer),
-      cost: localTtsCost(this.name),
+      cost: localTtsCost(this.name, req.voiceId, req.text.length),
     };
   }
 

@@ -1,8 +1,17 @@
 import type { ProviderCost } from "@video-generator/types";
 
 /** Piper/Coqui corren self-hosted via TTS_BASE_URL (docker/piper, docker/coqui) — siempre gratis. */
-export function localTtsCost(providerName: string): ProviderCost {
-  return { providerType: "tts", providerName, isFree: true, isLocal: true, amountUsd: 0 };
+export function localTtsCost(providerName: string, voiceName?: string, charCount?: number): ProviderCost {
+  return {
+    providerType: "tts",
+    providerName,
+    model: voiceName,
+    isFree: true,
+    isLocal: true,
+    amountUsd: 0,
+    units: charCount,
+    unitKind: charCount === undefined ? undefined : "chars",
+  };
 }
 
 /**
@@ -12,13 +21,16 @@ export function localTtsCost(providerName: string): ProviderCost {
  */
 const ELEVENLABS_USD_PER_CHAR = 0.1 / 1000;
 
-export function elevenLabsCost(charCount: number): ProviderCost {
+export function elevenLabsCost(charCount: number, voiceName?: string): ProviderCost {
   return {
     providerType: "tts",
     providerName: "elevenlabs",
+    model: voiceName,
     isFree: false,
     isLocal: false,
     amountUsd: charCount * ELEVENLABS_USD_PER_CHAR,
+    units: charCount,
+    unitKind: "chars",
     detail: `${charCount} caracteres`,
   };
 }
@@ -29,13 +41,16 @@ export function elevenLabsCost(charCount: number): ProviderCost {
  */
 const AZURE_USD_PER_CHAR = 16 / 1_000_000;
 
-export function azureTtsCost(charCount: number): ProviderCost {
+export function azureTtsCost(charCount: number, voiceName?: string): ProviderCost {
   return {
     providerType: "tts",
     providerName: "azure",
+    model: voiceName,
     isFree: false,
     isLocal: false,
     amountUsd: charCount * AZURE_USD_PER_CHAR,
+    units: charCount,
+    unitKind: "chars",
     detail: `${charCount} caracteres`,
   };
 }
@@ -61,9 +76,12 @@ export function googleTtsCost(voiceName: string, charCount: number): ProviderCos
   return {
     providerType: "tts",
     providerName: "google",
+    model: voiceName,
     isFree: false,
     isLocal: false,
     amountUsd: charCount * googleUsdPerChar(voiceName),
+    units: charCount,
+    unitKind: "chars",
     detail: `${charCount} caracteres (${voiceName})`,
   };
 }

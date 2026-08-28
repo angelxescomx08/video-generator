@@ -1,4 +1,4 @@
-import { integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { feedback } from "./feedback";
 import { videos } from "./videos";
 
@@ -26,7 +26,11 @@ export const videoVersions = pgTable(
     exchangeRateUsed: numeric("exchange_rate_used"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("video_versions_video_version_idx").on(t.videoId, t.versionNumber)],
+  (t) => [
+    uniqueIndex("video_versions_video_version_idx").on(t.videoId, t.versionNumber),
+    /** La serie de gasto por mes agrega todas las versiones por fecha, sin filtrar por video. */
+    index("video_versions_created_at_idx").on(t.createdAt.desc()),
+  ],
 );
 
 export type VideoVersion = typeof videoVersions.$inferSelect;

@@ -4,7 +4,7 @@ import { z } from "zod";
  * Catalogo de metricas de rendimiento de un video publicado. Es la fuente unica de verdad para tres
  * consumidores: el formulario manual de /videos/[id]/performance (labels + tooltips), el provider de
  * YouTube (que metricas pedir a la Analytics API) y el motor de aprendizaje global
- * (apps/worker/src/memory/performance.ts, que decide cuales son senal utilizable).
+ * (@video-generator/analytics, que decide cuales son senal utilizable).
  *
  * La `importance` no es cosmetica: solo las metricas `critical` alimentan el aprendizaje global,
  * porque son las unicas que discriminan entre "el guion fallo" y "no tuvo distribucion". Las

@@ -25,9 +25,12 @@ const RENDER_COST: CostItem = {
   stage: "render",
   providerType: "render",
   providerName: "ffmpeg",
+  model: "ffmpeg",
   isFree: true,
   isLocal: true,
   amountUsd: 0,
+  units: 1,
+  unitKind: "renders",
 };
 
 /**
