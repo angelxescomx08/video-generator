@@ -75,9 +75,18 @@ export function compactNumber(value: number): string {
   return Math.round(value).toLocaleString("es-MX");
 }
 
+/**
+ * Importes en dolares con la precision que hace falta y ni un decimal mas.
+ *
+ * Por debajo de $1 hacen falta cuatro decimales (un guion cuesta centesimas de centavo), pero
+ * arrastrarlos siempre llena los ejes de ceros muertos — `$0.2000` en una marca de eje es ruido.
+ * Se recortan los ceros de la cola solo en ese tramo; a partir de $1 se mantienen los dos decimales
+ * de siempre, porque `$9.5` en dinero se lee como un error de formato.
+ */
 export function formatUsd(amount: number): string {
   if (amount === 0) return "$0";
-  return `$${amount.toFixed(amount < 1 ? 4 : 2)}`;
+  if (Math.abs(amount) >= 1) return `$${amount.toFixed(2)}`;
+  return `$${amount.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`;
 }
 
 export function formatMxn(amount: number): string {

@@ -4,16 +4,23 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import {
   costItemLabel,
   effectiveUnitPrice,
+  formatBucket,
   getVideoAnalytics,
+  resolveTimeRange,
+  GRANULARITY_NOUNS,
   UNIT_LABELS,
+  type TimeRange,
   type VideoAnalytics,
 } from "@video-generator/analytics";
 import type { CostItem, CostStage, CostUnitKind, RetentionPoint } from "@video-generator/types";
 import { ChartFrame } from "@/components/charts/chart-frame";
 import { BarChart, CompositionBar } from "@/components/charts/bar-chart";
 import { LineChart } from "@/components/charts/line-chart";
+import { ColumnChart } from "@/components/charts/column-chart";
+import { Funnel } from "@/components/charts/funnel";
+import { TimeControls } from "@/components/charts/time-controls";
 import { HeroNumber, StatTile } from "@/components/charts/stat-tile";
-import { compactNumber, formatDay, formatMxn, formatPercent, formatUsd } from "@/components/charts/scales";
+import { compactNumber, formatMxn, formatPercent, formatUsd } from "@/components/charts/scales";
 import { CostDisclaimer } from "@/components/cost-disclaimer";
 import { STAGE_LABELS, summarizeVersionCosts } from "@/lib/version-costs";
 import { withOverHundredNote } from "@/lib/retention-copy";
@@ -23,12 +30,19 @@ export const dynamic = "force-dynamic";
 
 const FALLBACK_RATE = 18.5;
 
-export default async function VideoAnalyticsPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const data = await getVideoAnalytics(id);
+export default async function VideoAnalyticsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const time = resolveTimeRange(query, { granularity: "day", range: "90d" });
+  const data = await getVideoAnalytics(id, time);
   if (!data) notFound();
 
-  const { video, published, latest, daily, channel } = data;
+  const { video, published, latest, series, channel } = data;
 
   return (
     <div className="max-w-4xl space-y-10">
@@ -62,6 +76,10 @@ export default async function VideoAnalyticsPage({ params }: { params: Promise<{
             )}
           </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Cada grafica trae un desplegable <span className="font-medium text-foreground">Como se lee</span> con
+          lo que significa y que hacer con ella.
+        </p>
       </header>
 
       {!published && <NotLinked videoId={id} />}
@@ -69,9 +87,22 @@ export default async function VideoAnalyticsPage({ params }: { params: Promise<{
       {latest ? (
         <>
           <Overview latest={latest} channel={channel} capturedAt={latest.capturedAt} />
+          <VideoFunnel latest={latest} />
           <RetentionCurveChart curve={latest.retentionCurve} avgViewPercentage={latest.avgViewPercentage} />
-          <ViewsChart daily={daily} />
-          <QualityChart daily={daily} />
+
+          <section className="space-y-4">
+            <div className="border-b border-border pb-2">
+              <h2 className="text-lg font-semibold">Evolucion en el tiempo</h2>
+              <p className="text-sm text-muted-foreground">
+                El periodo y la agrupacion mandan sobre las tres graficas de esta seccion.
+              </p>
+            </div>
+            <TimeControls basePath={`/videos/${id}/analytics`} current={time} />
+            <NewViewsChart series={series} time={time} />
+            <CumulativeViewsChart series={series} time={time} />
+            <QualityChart series={series} time={time} />
+          </section>
+
           <TrafficChart sources={latest.trafficSources} />
         </>
       ) : (
@@ -179,6 +210,51 @@ function delta(value: number | null, reference: number | null, label: string) {
   return { points: value - reference, label, upIsGood: true };
 }
 
+function VideoFunnel({ latest }: { latest: NonNullable<VideoAnalytics["latest"]> }) {
+  const impressions = latest.impressions ?? 0;
+  const views = latest.views ?? 0;
+  const engaged = latest.engagedViews ?? 0;
+  const subs = latest.subscribersGained ?? 0;
+
+  return (
+    <ChartFrame
+      title="El embudo de este video"
+      description="Cuanta gente sobrevive a cada paso, desde que YouTube lo ensena hasta que alguien se suscribe."
+      howToRead={{
+        measures:
+          "Las cuatro etapas por las que pasa un espectador de ESTE video: impresion, vista, permanencia mas alla de los primeros segundos y suscripcion.",
+        read: "El porcentaje que sobrevive de un escalon al siguiente localiza el fallo. La caida mas grande es el problema del video.",
+        act: "Impresiones a vistas flojo = titulo o miniatura. Vistas a permanencia flojo = gancho. Permanencia buena sin suscriptores = entretiene pero no da razones para volver.",
+        source: "Ultima captura. En Shorts, YouTube no reporta impresiones: ese escalon sale como 'sin dato', que no es cero.",
+      }}
+      isEmpty={views === 0 && impressions === 0}
+      empty="Todavia no hay vistas medidas para este video."
+      table={{
+        columns: ["Etapa", "Total"],
+        rows: [
+          ["Impresiones", impressions.toLocaleString("es-MX")],
+          ["Vistas", views.toLocaleString("es-MX")],
+          ["Vistas con permanencia", engaged.toLocaleString("es-MX")],
+          ["Suscriptores ganados", subs.toLocaleString("es-MX")],
+        ],
+      }}
+    >
+      <Funnel
+        steps={[
+          { label: "Impresiones", value: impressions, help: "Veces que YouTube mostro la miniatura." },
+          { label: "Vistas", value: views, help: "Veces que alguien abrio el video." },
+          {
+            label: "Vistas con permanencia",
+            value: engaged,
+            help: "Se quedaron mas alla de los primeros segundos. Es el tamano de muestra real.",
+          },
+          { label: "Suscriptores ganados", value: subs, help: "Se suscribieron despues de ver este video." },
+        ]}
+      />
+    </ChartFrame>
+  );
+}
+
 /**
  * La curva de retencion: donde exactamente se cae la audiencia.
  *
@@ -201,6 +277,14 @@ function RetentionCurveChart({
       description={`Que porcentaje de la audiencia seguia viendo en cada punto del video.${
         avgViewPercentage === null ? "" : ` En promedio se vio el ${avgViewPercentage.toFixed(1)}% del video.`
       }`}
+      howToRead={{
+        measures:
+          "El eje horizontal es el video de principio a fin, en porcentaje de su duracion. El vertical, cuanta audiencia seguia viendo en ese punto.",
+        read: "Busca la CAIDA MAS BRUSCA, no el nivel general. Un desplome en los primeros tramos es un gancho que no cumple lo que promete; una pendiente suave y constante es normal; una subida al final significa que la gente lo repite.",
+        act: "Multiplica el porcentaje donde cae por la duracion del video y tendras el segundo exacto. Abre el guion en ese segundo: eso es lo que hay que cortar o reescribir.",
+        source:
+          "YouTube publica la curva ~48h despues de subir el video y necesita un minimo de reproducciones. En Shorts los valores pasan de 100 porque cuentan las repeticiones.",
+      }}
       isEmpty={points.length < 2}
       empty="YouTube todavia no publica la curva de este video. Suele tardar unas 48 horas desde la subida, y necesita un minimo de reproducciones."
       table={{
@@ -218,21 +302,66 @@ function RetentionCurveChart({
   );
 }
 
-function ViewsChart({ daily }: { daily: VideoAnalytics["daily"] }) {
+function NewViewsChart({ series, time }: { series: VideoAnalytics["series"]; time: TimeRange }) {
+  const noun = GRANULARITY_NOUNS[time.granularity];
+  const values = series.map((b) => b.newViews);
+
+  return (
+    <ChartFrame
+      title={`Vistas nuevas por ${noun}`}
+      description={`Cuantas vistas gano este video en cada ${noun}.`}
+      howToRead={{
+        measures: `La diferencia entre las vistas totales al cerrar un ${noun} y las del ${noun} anterior.`,
+        read: "Es la grafica que dice si el video sigue vivo. Barras altas al principio que caen a casi nada es el ciclo normal de un Short; barras que se mantienen significan que YouTube lo sigue distribuyendo.",
+        act: "Si las barras se apagaron hace tiempo, este video ya dio lo que tenia que dar: las decisiones se toman con los videos que aun se mueven.",
+        source: `El primer ${noun} sale vacio: no hay periodo anterior contra el que restar.`,
+      }}
+      isEmpty={values.filter((v) => v !== null).length === 0}
+      empty={`Hacen falta capturas en al menos dos ${noun}s consecutivos para poder restar uno del otro.`}
+      table={{
+        columns: [noun, "Vistas nuevas", "Acumuladas", "Likes nuevos"],
+        rows: series.map((b) => [
+          formatBucket(b.bucket, time.granularity),
+          b.newViews === null ? "—" : b.newViews.toLocaleString("es-MX"),
+          b.cumulativeViews.toLocaleString("es-MX"),
+          b.newLikes === null ? "—" : b.newLikes.toLocaleString("es-MX"),
+        ]),
+      }}
+    >
+      <ColumnChart
+        labels={series.map((b) => formatBucket(b.bucket, time.granularity))}
+        values={values}
+        valueLabel="vistas nuevas"
+      />
+    </ChartFrame>
+  );
+}
+
+function CumulativeViewsChart({ series, time }: { series: VideoAnalytics["series"]; time: TimeRange }) {
   return (
     <ChartFrame
       title="Vistas acumuladas"
-      description="Una lectura por dia (la ultima de ese dia). El tramo plano al final indica que el video salio de distribucion."
-      isEmpty={daily.length < 2}
-      empty="Hace falta mas de un dia de capturas para dibujar una evolucion."
+      description="El contador total del video al cerrar cada periodo. Solo puede subir."
+      howToRead={{
+        measures: "El contador de vistas que reporta YouTube, que es acumulado desde la publicacion.",
+        read: "Lo que se lee es la PENDIENTE. Una curva que arranca vertical y se tumba es el ciclo tipico; un tramo plano al final significa que salio de distribucion.",
+        act: "Si se tumbo muy pronto pese a tener buena retencion, el problema no fue el video sino que YouTube dejo de ensenarlo — mira el CTR y las fuentes de trafico.",
+        source: "Se toma la ultima captura de cada periodo, nunca la suma: sumarlas contaria el mismo video varias veces.",
+      }}
+      isEmpty={series.length < 2}
+      empty="Hace falta mas de un periodo con capturas para dibujar una evolucion."
       table={{
-        columns: ["Dia", "Vistas", "Likes"],
-        rows: daily.map((d) => [formatDay(d.day), d.views.toLocaleString("es-MX"), d.likes.toLocaleString("es-MX")]),
+        columns: [GRANULARITY_NOUNS[time.granularity], "Vistas acumuladas", "Likes"],
+        rows: series.map((b) => [
+          formatBucket(b.bucket, time.granularity),
+          b.cumulativeViews.toLocaleString("es-MX"),
+          b.likes.toLocaleString("es-MX"),
+        ]),
       }}
     >
       <LineChart
-        labels={daily.map((d) => formatDay(d.day))}
-        series={[{ label: "Vistas", values: daily.map((d) => d.views), area: true }]}
+        labels={series.map((b) => formatBucket(b.bucket, time.granularity))}
+        series={[{ label: "Vistas acumuladas", values: series.map((b) => b.cumulativeViews), area: true }]}
       />
     </ChartFrame>
   );
@@ -245,36 +374,43 @@ function ViewsChart({ daily }: { daily: VideoAnalytics["daily"] }) {
  * que dos series pueden convivir en una grafica. Las vistas, que estan en otra escala, van aparte:
  * meterlas aqui con un segundo eje inventaria una correlacion que no se midio.
  */
-function QualityChart({ daily }: { daily: VideoAnalytics["daily"] }) {
-  const hasData = daily.some((d) => d.retentionAtStart !== null || d.avgViewPercentage !== null);
+function QualityChart({ series, time }: { series: VideoAnalytics["series"]; time: TimeRange }) {
+  const hasData = series.some((b) => b.retentionAtStart !== null || b.avgViewPercentage !== null);
 
   return (
     <ChartFrame
       title="Evolucion de la calidad"
-      description="Retencion y porcentaje visto suelen bajar cuando YouTube amplia la distribucion a publico menos afin. Una caida sostenida ahi explica que el video deje de recomendarse."
+      description="Retencion y porcentaje visto, periodo a periodo."
+      howToRead={{
+        measures:
+          "Las dos notas del video a lo largo del tiempo: cuantos aguantan los primeros segundos y que porcentaje del video se ve de media. Las dos son porcentajes, por eso comparten eje.",
+        read: "Suelen BAJAR con el tiempo, y eso es normal: al ampliar la distribucion, YouTube ensena el video a publico menos afin. Lo relevante es si la caida es suave o si se desploma.",
+        act: "Un desplome sostenido explica que el video deje de recomendarse: el algoritmo mide lo mismo que tu estas viendo aqui.",
+        source: "Ultima captura de cada periodo. Los huecos son periodos sin sincronizacion, no ceros.",
+      }}
       series={[
         { label: "Retencion 3s", color: "var(--chart-1)" },
         { label: "Porcentaje visto", color: "var(--chart-2)" },
       ]}
-      isEmpty={!hasData || daily.length < 2}
+      isEmpty={!hasData || series.length < 2}
       empty="Todavia no hay suficientes capturas con retencion medida."
       table={{
-        columns: ["Dia", "Retencion 3s", "Porcentaje visto", "CTR"],
-        rows: daily.map((d) => [
-          formatDay(d.day),
-          formatPercent(d.retentionAtStart),
-          formatPercent(d.avgViewPercentage),
-          formatPercent(d.ctr),
+        columns: [GRANULARITY_NOUNS[time.granularity], "Retencion 3s", "Porcentaje visto", "CTR"],
+        rows: series.map((b) => [
+          formatBucket(b.bucket, time.granularity),
+          formatPercent(b.retentionAtStart),
+          formatPercent(b.avgViewPercentage),
+          formatPercent(b.ctr),
         ]),
       }}
     >
       <LineChart
-        labels={daily.map((d) => formatDay(d.day))}
+        labels={series.map((b) => formatBucket(b.bucket, time.granularity))}
         minAxisTop={100}
         format={(v) => `${Math.round(v)}%`}
         series={[
-          { label: "Retencion 3s", values: daily.map((d) => d.retentionAtStart) },
-          { label: "Porcentaje visto", values: daily.map((d) => d.avgViewPercentage) },
+          { label: "Retencion 3s", values: series.map((b) => b.retentionAtStart) },
+          { label: "Porcentaje visto", values: series.map((b) => b.avgViewPercentage) },
         ]}
       />
     </ChartFrame>
@@ -308,7 +444,13 @@ function TrafficChart({ sources }: { sources: Record<string, number> | null }) {
   return (
     <ChartFrame
       title="De donde vinieron las vistas"
-      description="Dice a que hay que atribuir el resultado: un video que solo vive del feed de Shorts depende del gancho, y uno que vive de la busqueda depende del titulo."
+      description="Reparto de las vistas por la superficie de YouTube que las trajo."
+      howToRead={{
+        measures: "Cuantas vistas llegaron desde cada sitio: el feed de Shorts, la busqueda, los sugeridos, los suscriptores...",
+        read: "Dice a que atribuir el resultado. Un video que vive del feed de Shorts se juega todo en el gancho; uno que vive de la busqueda se lo juega en el titulo; uno que vive de suscriptores no esta llegando a gente nueva.",
+        act: "Si casi todo viene de suscriptores, el video no esta creciendo el canal aunque tenga buenos numeros: gustó a los de siempre.",
+        source: "Requiere permisos de YouTube Analytics y un minimo de vistas. Si falta, YouTube no lo devolvio para este video.",
+      }}
       isEmpty={rows.length === 0}
       empty="YouTube no devolvio el reparto por fuente de trafico para este video. Requiere permisos de Analytics y un minimo de vistas."
       table={{
@@ -366,7 +508,7 @@ function CostSection({ data }: { data: VideoAnalytics }) {
     );
   }
 
-  const byStage = sumBy(items, (i) => i.stage);
+  const byStage = sumByStage(items);
   const byModel = groupByModel(items);
   const views = latest?.engagedViews ?? latest?.views ?? 0;
   const rate = summary.totalUsd > 0 ? summary.totalMxn / summary.totalUsd : FALLBACK_RATE;
@@ -400,6 +542,12 @@ function CostSection({ data }: { data: VideoAnalytics }) {
       <ChartFrame
         title="En que se fue el dinero"
         description="Reparto entre las etapas del pipeline, sumando todas las versiones."
+        howToRead={{
+          measures: "El costo de este video partido por etapa: guion, voz, video de stock, edicion y render.",
+          read: "Una sola barra al 100%: lo que se lee es la proporcion. En este pipeline la voz suele ser el bloque dominante porque se cobra por caracter y los guiones son largos.",
+          act: "Si quieres abaratar este tipo de video, el bloque mas ancho es el unico sitio donde tocar algo se nota.",
+          source: "Desglose congelado al renderizar cada version. Las etapas gratuitas salen en cero.",
+        }}
         isEmpty={[...byStage.values()].every((v) => v === 0)}
         empty="Todas las etapas de este video corrieron con proveedores gratuitos."
         table={{
@@ -443,7 +591,8 @@ function groupByModel(items: CostItem[]): ModelRow[] {
   const map = new Map<string, ModelRow>();
   for (const item of items) {
     const label = costItemLabel(item);
-    const existing = map.get(label) ?? { label, usd: 0, units: 0, unitKind: item.unitKind ?? null, isLocal: item.isLocal };
+    const existing =
+      map.get(label) ?? { label, usd: 0, units: 0, unitKind: item.unitKind ?? null, isLocal: item.isLocal };
     existing.usd += item.amountUsd;
     existing.units += item.units ?? 0;
     existing.unitKind = existing.unitKind ?? item.unitKind ?? null;
@@ -459,7 +608,13 @@ function ModelBreakdown({ rows, rate }: { rows: ModelRow[]; rate: number }) {
   return (
     <ChartFrame
       title="Modelos y voces usados"
-      description="Lo que cobro cada modelo de texto y cada voz en este video, con el consumo que lo explica."
+      description="Lo que cobro cada modelo de texto y cada voz en este video."
+      howToRead={{
+        measures: "El gasto de cada modelo en este video, con el consumo que lo explica (tokens en texto, caracteres en voz).",
+        read: "Compara el consumo, no solo el gasto: un guion mas largo sube los caracteres y por tanto la factura de la voz sin que nada haya cambiado de precio.",
+        act: "Si un modelo domina el costo de todos tus videos, la pantalla de Costos tiene su precio efectivo por millon de unidades para decidir si vale la pena cambiarlo.",
+        source: "Consumo reportado por cada proveedor por la tabla de precios del repositorio. En videos viejos el modelo puede aparecer como el nombre del proveedor.",
+      }}
       isEmpty={paid.length === 0}
       empty={
         free.length > 0
@@ -498,9 +653,16 @@ function VersionTimeline({ summary }: { summary: ReturnType<typeof summarizeVers
   return (
     <div className="space-y-2">
       <h3 className="text-sm font-semibold">Version a version</h3>
+      <p className="text-xs text-muted-foreground">
+        Cada version solo paga las etapas que de verdad se volvieron a correr: cambiar la musica re-renderiza
+        pero no vuelve a comprar guion ni voz.
+      </p>
       <ul className="space-y-2">
         {summary.perVersion.map((version) => (
-          <li key={version.versionId} className="flex flex-wrap items-center gap-2 rounded-md border border-border p-3 text-xs">
+          <li
+            key={version.versionId}
+            className="flex flex-wrap items-center gap-2 rounded-md border border-border p-3 text-xs"
+          >
             <Badge variant="outline" className="text-[10px]">
               v{version.versionNumber}
             </Badge>
@@ -521,11 +683,10 @@ function VersionTimeline({ summary }: { summary: ReturnType<typeof summarizeVers
   );
 }
 
-function sumBy(items: CostItem[], key: (item: CostItem) => CostStage): Map<CostStage, number> {
+function sumByStage(items: CostItem[]): Map<CostStage, number> {
   const map = new Map<CostStage, number>();
   for (const item of items) {
-    const k = key(item);
-    map.set(k, (map.get(k) ?? 0) + item.amountUsd);
+    map.set(item.stage, (map.get(item.stage) ?? 0) + item.amountUsd);
   }
   return new Map([...map.entries()].sort((a, b) => b[1] - a[1]));
 }

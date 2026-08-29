@@ -32,6 +32,15 @@
     --chart-3: #1baf7a;
     --chart-4: #eda100;
     --chart-5: #e87ba4;
+
+    /* Rampa secuencial (un solo tono, claro -> oscuro) para codificar MAGNITUD, no identidad: el
+       mapa de calor de retencion y el embudo. Un arcoiris aqui seria un error — el ojo no ordena
+       tonos, si ordena claridad. Son pasos de la rampa azul documentada en la guia de dataviz. */
+    --chart-seq-1: #cde2fb;
+    --chart-seq-2: #86b6ef;
+    --chart-seq-3: #3987e5;
+    --chart-seq-4: #256abf;
+    --chart-seq-5: #104281;
   }
 
   .dark {
@@ -56,6 +65,14 @@
     --chart-3: #199e70;
     --chart-4: #c98500;
     --chart-5: #d55181;
+
+    /* En oscuro la rampa se invierte de direccion, no de tono: el valor mas bajo es el que debe
+       fundirse con el fondo, y aqui el fondo es oscuro. */
+    --chart-seq-1: #104281;
+    --chart-seq-2: #1c5cab;
+    --chart-seq-3: #2a78d6;
+    --chart-seq-4: #5598e7;
+    --chart-seq-5: #86b6ef;
   }
 }
 

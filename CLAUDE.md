@@ -39,6 +39,7 @@ No hay suite de tests todavía — al agregar una, preferir tests unitarios puro
 | Cambiar qué aprende la IA del rendimiento pasado | `packages/analytics/src/learnings.ts` (+ `video-attributes.ts`) |
 | Agregar un corte de analíticas o de costos | `packages/analytics/src/*-queries.ts` |
 | Dibujar una gráfica nueva | `apps/web/src/components/charts/*` |
+| Cambiar los rangos o la agrupación temporal | `packages/analytics/src/time-range.ts` |
 | Tocar la UI | `apps/web/src/app/**` (App Router) y `apps/web/src/components/**` |
 | Variables de entorno | `packages/config/src/env.ts` (zod schema — agregar ahí antes de usar `process.env` en cualquier otro lado) |
 
@@ -73,7 +74,22 @@ No hay suite de tests todavía — al agregar una, preferir tests unitarios puro
 - Las pantallas de analíticas son componentes de servidor que lanzan sus consultas en **un solo
   `Promise.all`**, no en `await` encadenados: cada await suelto es un viaje más a la base antes de
   poder pintar. Las gráficas son SVG renderizado en el servidor (`components/charts/`), sin librería
-  de gráficas — por eso `/analytics/costs` y `/videos/[id]/analytics` bajan ~173 B de JS al cliente.
+  de gráficas — por eso `/analytics/costs` y `/videos/[id]/analytics` bajan ~168 B de JS al cliente.
+- El rango y la agrupación temporal (día/semana/mes/año) viven en la **URL** (`?r=90d&g=week`), no en
+  estado de cliente: así las pantallas siguen siendo componentes de servidor, el filtro sobrevive a
+  un refresco y se puede compartir como enlace. `TimeControls` son `<Link>`, no botones.
+- Al elegir la forma de una gráfica: dato acumulado o continuo → línea; "cuánto hubo en este periodo"
+  → columnas; categorías nominales → barras horizontales de UN color; parte-de-un-todo → barra de
+  composición; dos magnitudes continuas → nube de puntos; dos dimensiones categóricas cruzadas →
+  mapa de calor con rampa secuencial; una secuencia donde cada paso es subconjunto del anterior →
+  embudo; y cuando la historia es un solo número, una casilla, no una gráfica.
+- **`views` de YouTube es un contador ACUMULADO.** Agrupar por periodo sumando todas las capturas del
+  periodo cuenta el mismo video una vez por captura. El patrón correcto está en `getChannelSeries`:
+  `DISTINCT ON` para la última captura de cada video dentro del cubo, y `lag()` para el delta.
+- Cada gráfica lleva un `howToRead` (**qué mide / cómo leerla / qué hacer / de dónde sale**) y una
+  tabla de respaldo. No es decoración: los tonos claros de la paleta no llegan a 3:1 sobre el fondo
+  blanco, y la regla de la guía de dataviz para ese caso es que los valores sean legibles fuera del
+  color.
 - Al tocar la paleta de series (`--chart-*` en `globals.css`), vuelve a correr el validador de la
   guía de dataviz contra los fondos reales de la app: el orden de los colores es el mecanismo que
   garantiza que se distingan bajo daltonismo, no una decisión estética.

@@ -8,6 +8,7 @@
  * Contrato del paquete: **toda funcion que consulta es una sola ida a la base y agrega en Postgres**.
  * Es lo que mantiene el tiempo de respuesta plano cuando el canal pasa de diez videos a mil.
  */
+export * from "./time-range";
 export * from "./video-attributes";
 export * from "./learnings";
 export * from "./channel-queries";

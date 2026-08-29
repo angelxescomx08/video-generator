@@ -1,6 +1,7 @@
 import { db, DEFAULT_USD_TO_MXN_RATE } from "@video-generator/db";
 import type { CostStage, CostUnitKind, ProviderKind } from "@video-generator/types";
 import { sql } from "drizzle-orm";
+import type { TimeRange } from "./time-range";
 
 /**
  * Agregaciones de costo sobre `video_versions.cost_breakdown`.
@@ -37,7 +38,7 @@ const COST_ITEM_COLUMNS = sql`(
  *
  * Una version sin desglose guardado (renderizada antes de que existiera el calculo de costos) no
  * produce ninguna fila aqui, que es lo correcto: no aporto ningun costo conocido. Los totales que si
- * la tienen que contar (`getCostTotals`, `getCostByMonth`) no pasan por este lateral, leen la
+ * la tienen que contar (`getCostTotals`, `getCostSeries`) no pasan por este lateral, leen la
  * columna `cost_total_usd` de la version directamente.
  */
 const costItems = sql`
@@ -57,6 +58,11 @@ const costItems = sql`
  * detalle es "9 escenas" acababa apareciendo en la grafica como si fuera el nombre de un modelo.
  */
 const itemModel = sql`coalesce(item.model, substring(item.detail from '\\(([^)]+)\\)$'))`;
+
+/** Filtro de ventana, o nada cuando el rango es "todo". */
+function withinRange(days: number | null, column: string) {
+  return days === null ? sql.raw("true") : sql`${sql.raw(column)} >= now() - make_interval(days => ${days}::int)`;
+}
 
 /** El tipo de cambio guardado en la version; si esa version es vieja y no lo trae, el default. */
 const rate = sql`coalesce(vv.exchange_rate_used::double precision, ${DEFAULT_USD_TO_MXN_RATE}::double precision)`;
@@ -149,40 +155,95 @@ export async function getCostByStage(): Promise<CostByStageRow[]> {
   return result.rows.map((r) => ({ stage: r.stage, usd: Number(r.usd), mxn: Number(r.mxn), videos: r.videos }));
 }
 
-export interface CostByMonthRow {
-  /** Primer dia del mes, en UTC. */
-  month: Date;
+export interface CostBucketRow {
+  /** Inicio del periodo, en UTC. */
+  bucket: Date;
   usd: number;
   mxn: number;
   videos: number;
   versions: number;
+  /** Lo que costo de media cada video de ese periodo — la cifra que dice si se esta abaratando. */
+  usdPerVideo: number | null;
 }
 
 /**
- * Gasto por mes. Sale de los totales ya guardados en la version (`cost_total_usd`), no de volver a
- * sumar el jsonb: el total es una foto historica del costo al momento del render y es justo lo que
- * se quiere graficar en una serie de tiempo.
+ * Gasto por periodo (dia / semana / mes / ano).
+ *
+ * A diferencia de las vistas, el costo NO es un contador acumulado: cada version se paga una vez y
+ * se queda quieta. Por eso aqui si se suma directo dentro del cubo, sin `DISTINCT ON` ni deltas.
+ *
+ * Sale de los totales ya congelados en la version (`cost_total_usd`) y no de volver a sumar el
+ * jsonb: ese total es la foto del costo al momento del render, que es justo lo que debe aparecer en
+ * una serie historica — actualizar la tabla de precios no debe reescribir el pasado.
  */
-export async function getCostByMonth(months = 12): Promise<CostByMonthRow[]> {
-  const result = await db.execute<{ month: Date; usd: number; mxn: number; videos: number; versions: number }>(sql`
+export async function getCostSeries({ granularity, days }: TimeRange): Promise<CostBucketRow[]> {
+  const bucket = sql.raw(`date_trunc('${granularity}', vv.created_at)`);
+  const result = await db.execute<{
+    bucket: Date;
+    usd: number;
+    mxn: number;
+    videos: number;
+    versions: number;
+  }>(sql`
     select
-      date_trunc('month', vv.created_at)                                             as month,
-      sum(coalesce(vv.cost_total_usd::double precision, 0))              as usd,
-      sum(coalesce(vv.cost_total_mxn::double precision, 0))              as mxn,
-      count(distinct vv.video_id)::int                                               as videos,
-      count(*)::int                                                                  as versions
+      ${bucket}                                             as bucket,
+      sum(coalesce(vv.cost_total_usd::double precision, 0)) as usd,
+      sum(coalesce(vv.cost_total_mxn::double precision, 0)) as mxn,
+      count(distinct vv.video_id)::int                      as videos,
+      count(*)::int                                         as versions
     from video_versions vv
-    where vv.created_at >= date_trunc('month', now()) - make_interval(months => ${months - 1}::int)
+    where ${withinRange(days, "vv.created_at")}
     group by 1
     order by 1
   `);
-  return result.rows.map((r) => ({
-    month: new Date(r.month),
-    usd: Number(r.usd),
-    mxn: Number(r.mxn),
-    videos: r.videos,
-    versions: r.versions,
-  }));
+  return result.rows.map((r) => {
+    const usd = Number(r.usd);
+    return {
+      bucket: new Date(r.bucket),
+      usd,
+      mxn: Number(r.mxn),
+      videos: r.videos,
+      versions: r.versions,
+      usdPerVideo: r.videos > 0 ? usd / r.videos : null,
+    };
+  });
+}
+
+export interface CostStageBucketRow {
+  bucket: Date;
+  /** Gasto de ese periodo por etapa; las etapas sin gasto no aparecen. */
+  byStage: Partial<Record<CostStage, number>>;
+  total: number;
+}
+
+/**
+ * Gasto por periodo Y por etapa, en una sola consulta.
+ *
+ * Es lo que permite dibujar columnas apiladas: no solo cuanto se gasto cada mes, sino en que — que
+ * es donde se ve el efecto de un cambio de proveedor. Pasar de una voz de pago a Piper no baja una
+ * curva de "gasto total" de forma interpretable; hace desaparecer un bloque de color concreto.
+ */
+export async function getCostByStageSeries({ granularity, days }: TimeRange): Promise<CostStageBucketRow[]> {
+  const bucket = sql.raw(`date_trunc('${granularity}', vv.created_at)`);
+  const result = await db.execute<{ bucket: Date; stage: CostStage; usd: number }>(sql`
+    select ${bucket} as bucket, item.stage as stage, sum(coalesce(item."amountUsd", 0)) as usd
+    ${costItems}
+    where ${withinRange(days, "vv.created_at")}
+    group by 1, 2
+    order by 1
+  `);
+
+  const byBucket = new Map<number, CostStageBucketRow>();
+  for (const row of result.rows) {
+    const date = new Date(row.bucket);
+    const key = date.getTime();
+    const entry = byBucket.get(key) ?? { bucket: date, byStage: {}, total: 0 };
+    const usd = Number(row.usd);
+    entry.byStage[row.stage] = (entry.byStage[row.stage] ?? 0) + usd;
+    entry.total += usd;
+    byBucket.set(key, entry);
+  }
+  return [...byBucket.values()].sort((a, b) => a.bucket.getTime() - b.bucket.getTime());
 }
 
 export interface CostTotals {
