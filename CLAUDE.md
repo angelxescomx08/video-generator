@@ -191,11 +191,25 @@ nombres conocidos) ni los handlers del worker (llaman siempre a través del regi
   conoce `MISSING_VARIANT_DIRECTIVE`). Es deliberado: una pregunta mal planteada por la IA podría
   hacer que un guion saliera raro, y el costo de equivocarse ahí es un video perdido, no un dato
   ausente.
-- El descubrimiento es **manual** (botón en `/analytics` → `DISCOVER_DIMENSIONS`), no un cron: proponer
-  cuesta una llamada al LLM y clasificar cuesta **una por video**, y volver a correrlo sin videos
-  nuevos de por medio paga por mirar casi la misma muestra otra vez. `MAX_ACTIVE_DISCOVERED` acota
-  cuántas pueden estar activas — no solo por costo: cuantas más preguntas le haces a la misma muestra
-  chica, más probable es que alguna dé un resultado bonito por pura casualidad.
+- El descubrimiento es **manual** (botón en `/analytics` → `DISCOVER_DIMENSIONS`), no un cron, y está
+  **bloqueado salvo cuando aporta** (`getDiscoveryEligibility`, fuente única de verdad para la UI y
+  para la ruta API — la ruta revalida porque el estado puede cambiar entre que se pinta la pantalla y
+  se aprieta). Las cuatro condiciones no son burocracia; cada una tapa una forma de engañarse:
+  **muestra < 2×`SAMPLES_PER_EXTREME`** (con menos, los "mejores" y los "peores" comparten videos y el
+  contraste es ficticio); **preguntas anteriores sin veredicto** (agregar hipótesis antes de cerrar
+  las abiertas es el patrón que fabrica falsos positivos — con ~10 variables ya salen "hallazgos" de
+  datos aleatorios); **tope de activas**; y **menos de `MIN_NEW_SAMPLES_BETWEEN_RUNS` videos nuevos
+  desde la última corrida** (volver a preguntarle a los mismos datos es fishing, no aprendizaje). Por
+  eso existe `dimension_discovery_runs`: sin registrar sobre cuánta muestra se corrió, no hay forma
+  de distinguir "hay material nuevo" de "es la misma muestra otra vez".
+- El botón deshabilitado **siempre dice por qué y qué falta** (`reason` + `unlockHint`). Un botón gris
+  sin explicación se lee como algo roto; con la razón al lado se lee como lo que es.
+- **Qué se persiste y qué no, a propósito:** se guardan las mediciones caras o irrecuperables —
+  `video_stats` (métricas de YouTube), `video_dimension_labels` (una llamada al LLM por video, se
+  cachea o cada visita a analíticas volvería a pagarla), `videos.edl`, `videos.exploration_plan`,
+  `dimension_discovery_runs`. Lo que **no** se guarda es la agregación (las lecciones): se recalcula
+  en cada lectura a propósito, porque tiene que reflejar el último snapshot y la última ponderación
+  por recencia. Una lección cacheada es una lección que puede estar mintiendo.
 - **Hay experimentos de guion y experimentos de PIPELINE, y viajan distinto.** Los de guion son un
   bloque de texto en el prompt. Los de pipeline (`PIPELINE_VARIANTS`) son datos: se deciden al
   escribir el guion pero se aplican después, así que se persisten en `videos.exploration_plan` — sin

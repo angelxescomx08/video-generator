@@ -1,12 +1,21 @@
 import { resolveProvider } from "@video-generator/ai-providers";
 import type { ProposedDimension } from "@video-generator/ai-providers";
 import {
+  getDiscoveryEligibility,
   loadDiscoveredDimensions,
   loadLearningSamples,
+  MAX_ACTIVE_DISCOVERED,
+  SAMPLES_PER_EXTREME,
   type LearningSample,
 } from "@video-generator/analytics";
-import { db, learningDimensions, videoDimensionLabels, videos } from "@video-generator/db";
-import { inArray } from "drizzle-orm";
+import {
+  db,
+  dimensionDiscoveryRuns,
+  learningDimensions,
+  videoDimensionLabels,
+  videos,
+} from "@video-generator/db";
+import { eq, inArray } from "drizzle-orm";
 import { logger } from "../util/logger";
 
 /**
@@ -24,22 +33,8 @@ import { logger } from "../util/logger";
  * efectiva y diferencia minima. Una pregunta absurda no rompe nada: nunca produce una leccion.
  */
 
-/** Cuantos guiones de cada extremo se le muestran a la IA. */
-const SAMPLES_PER_EXTREME = 5;
 /** Cuantas preguntas puede proponer por corrida. */
 const MAX_PROPOSALS = 3;
-/**
- * Tope de dimensiones descubiertas activas.
- *
- * Cada una cuesta una llamada de clasificacion por video, para siempre — sin tope, apretar el boton
- * varias veces convierte cada video nuevo en decenas de llamadas. Ademas, mas preguntas sobre la
- * misma muestra chica es la receta para encontrar correlaciones falsas: cuantas mas preguntas le
- * haces a diez videos, mas probable es que alguna de un resultado bonito por pura casualidad.
- */
-const MAX_ACTIVE_DISCOVERED = 8;
-
-/** Guiones minimos medibles para que buscar patrones tenga algun sentido. */
-const MIN_SAMPLES_TO_PROPOSE = 6;
 
 /** Clasificaciones en vuelo a la vez. Ver el bucle en `classifyPublishedVideos`. */
 const CLASSIFY_CONCURRENCY = 5;
@@ -78,20 +73,40 @@ function isUsable(proposal: ProposedDimension): boolean {
 }
 
 export async function handleDiscoverDimensions(): Promise<void> {
+  // Se vuelve a evaluar aqui aunque la ruta ya lo haya hecho: entre que se encolo el job y que se
+  // ejecuta pudo entrar otra corrida, y es esta la que gasta las llamadas al LLM.
+  const eligibility = await getDiscoveryEligibility();
+  if (!eligibility.enabled) {
+    logger.warn(`Descubrimiento cancelado: ${eligibility.reason}`);
+    return;
+  }
+
   const [samples, active] = await Promise.all([loadLearningSamples(), loadDiscoveredDimensions()]);
-
-  if (samples.length < MIN_SAMPLES_TO_PROPOSE) {
-    logger.warn(
-      `Descubrimiento cancelado: hacen falta ${MIN_SAMPLES_TO_PROPOSE} videos medibles y hay ${samples.length}`,
-    );
-    return;
-  }
-
   const slots = MAX_ACTIVE_DISCOVERED - active.length;
-  if (slots <= 0) {
-    logger.warn(`Descubrimiento cancelado: ya hay ${active.length} dimensiones descubiertas activas`);
-    return;
+
+  const [run] = await db
+    .insert(dimensionDiscoveryRuns)
+    .values({ sampleCount: samples.length })
+    .returning({ id: dimensionDiscoveryRuns.id });
+
+  try {
+    const proposed = await runDiscovery(samples, slots);
+    await db
+      .update(dimensionDiscoveryRuns)
+      .set({ status: "completed", finishedAt: new Date(), proposedCount: proposed })
+      .where(eq(dimensionDiscoveryRuns.id, run!.id));
+  } catch (err) {
+    // La corrida se cierra como fallida pase lo que pase: si quedara en "running", el boton se
+    // bloquearia para siempre esperando algo que ya murio.
+    await db
+      .update(dimensionDiscoveryRuns)
+      .set({ status: "failed", finishedAt: new Date(), errorMessage: (err as Error).message })
+      .where(eq(dimensionDiscoveryRuns.id, run!.id));
+    throw err;
   }
+}
+
+async function runDiscovery(samples: LearningSample[], slots: number): Promise<number> {
 
   // Se ordena por el porcentaje del video visto porque es la metrica que califica el guion COMPLETO,
   // que es lo que la IA va a leer. Ordenar por retencion inicial la haria buscar en todo el guion la
@@ -100,8 +115,12 @@ export async function handleDiscoverDimensions(): Promise<void> {
     .filter((s) => s.outcomes.avgViewPercentage !== undefined)
     .sort((a, b) => b.outcomes.avgViewPercentage! - a.outcomes.avgViewPercentage!);
 
-  const best = scored.slice(0, SAMPLES_PER_EXTREME);
-  const worst = scored.slice(-SAMPLES_PER_EXTREME);
+  // El tamano de cada extremo nunca puede pasar de la mitad: si los dos grupos comparten videos, se
+  // le estaria pidiendo a la IA que explique la diferencia entre un conjunto y si mismo. El gate ya
+  // exige 2x, pero esto lo garantiza aunque alguien afloje ese minimo despues.
+  const perExtreme = Math.min(SAMPLES_PER_EXTREME, Math.floor(scored.length / 2));
+  const best = scored.slice(0, perExtreme);
+  const worst = scored.slice(-perExtreme);
   const scriptRows = await db
     .select({ id: videos.id, script: videos.script })
     .from(videos)
@@ -125,7 +144,7 @@ export async function handleDiscoverDimensions(): Promise<void> {
   const usable = proposals.filter(isUsable).slice(0, slots);
   if (usable.length === 0) {
     logger.warn("La IA no devolvio ninguna propuesta bien formada", { recibidas: proposals.length });
-    return;
+    return 0;
   }
 
   const inserted = await db
@@ -147,6 +166,8 @@ export async function handleDiscoverDimensions(): Promise<void> {
     const proposal = usable.find((p) => p.label.trim() === dimension.label)!;
     await classifyPublishedVideos(dimension.id, proposal);
   }
+
+  return inserted.length;
 }
 
 /**

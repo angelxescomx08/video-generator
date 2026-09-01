@@ -6,6 +6,7 @@ import {
   getChannelOverview,
   getChannelSeries,
   getCostTotals,
+  getDiscoveryEligibility,
   getLearningReadiness,
   getLearningsReport,
   getLinkStatusCounts,
@@ -62,6 +63,7 @@ export default async function AnalyticsPage({
     timeline,
     learningsReport,
     readiness,
+    discoveryEligibility,
     costTotals,
     distribution,
     heatmap,
@@ -77,6 +79,7 @@ export default async function AnalyticsPage({
     getPublicationTimeline(),
     getLearningsReport(),
     getLearningReadiness(),
+    getDiscoveryEligibility(),
     getCostTotals(),
     getRetentionDistribution(),
     getRetentionHeatmap(),
@@ -141,6 +144,7 @@ export default async function AnalyticsPage({
             learnings={learningsReport.learnings}
             coverage={learningsReport.coverage}
             readiness={readiness}
+            discoveryEligibility={discoveryEligibility}
           />
 
           <section className="space-y-4">
@@ -655,10 +659,12 @@ function LearningsSection({
   learnings,
   coverage,
   readiness,
+  discoveryEligibility,
 }: {
   learnings: PerformanceLearning[];
   coverage: DimensionCoverage[];
   readiness: Awaited<ReturnType<typeof getLearningReadiness>>;
+  discoveryEligibility: Awaited<ReturnType<typeof getDiscoveryEligibility>>;
 }) {
   return (
     <section className="space-y-4">
@@ -716,7 +722,7 @@ function LearningsSection({
       )}
 
       <CoverageSection coverage={coverage} />
-      <DiscoverDimensionsButton usableSamples={readiness.usableSamples} />
+      <DiscoverDimensionsButton eligibility={discoveryEligibility} />
     </section>
   );
 }
