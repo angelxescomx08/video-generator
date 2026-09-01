@@ -8,6 +8,8 @@ export const QUEUES = {
   RENDER_VIDEO: "render-video",
   PUBLISH_VIDEO: "publish-video",
   POLL_STATS: "poll-stats",
+  /** Descubrimiento de dimensiones nuevas: no toca ningun video, analiza el canal entero. */
+  DISCOVER_DIMENSIONS: "discover-dimensions",
 } as const;
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 

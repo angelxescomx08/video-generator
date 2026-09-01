@@ -153,6 +153,67 @@ nombres conocidos) ni los handlers del worker (llaman siempre a través del regi
   no se descartan). Sin eso, dos escenas con keywords parecidas reciben el mismo clip del banco y el
   plano no cambia justo donde debería — y el problema empeora cuantas más escenas hay. Si en los logs
   `uniqueClips < scenes`, es que varias escenas están pidiendo lo mismo en `visualKeywords`.
+- **No agregues dimensiones de SEO (título/tags/descripción) al motor de aprendizaje.** No es que
+  falte código: falta métrica. YouTube no entrega `impressions` ni `impressionsCtr` para Shorts (el
+  provider ya las pide, ver `ANALYTICS_REACH_METRICS`, y vuelven vacías), así que no existe forma de
+  aislar el efecto de un título. Y aunque existiera, `traffic_sources` dice que **el 97% de las vistas
+  del canal viene del feed de Shorts y solo el 3% de búsqueda** — el feed no decide por título, decide
+  por retención. Una dimensión de SEO optimizaría el 3% midiéndolo con ruido.
+- La música se aprende por `edl.audio.backgroundMusicTags` (las tags que **encontraron** la pista), no
+  por `musicSuggestionTags` (las que la IA pidió). La búsqueda cae a las tags del tema o a las
+  genéricas cuando las de la IA no dan resultados, así que usar las pedidas etiquetaría el video con
+  una música que puede no ser la que suena. Las tags crudas se agrupan en familias de mood
+  (`MUSIC_MOOD_FAMILIES` en `video-attributes.ts`) porque son texto libre: sin agrupar, cada video
+  caería en su propio grupo y no habría nada que comparar.
+- **Las lecciones se promedian PONDERANDO por recencia, y los grupos se filtran por muestra efectiva
+  (ESS), no por número de videos.** El peso decae por **posición en el historial, no por fecha**: un
+  canal que publica en rachas haría que el decaimiento por calendario castigara una racha entera por
+  igual, cuando lo que importa es qué tan atrás está. La vida media es adaptativa
+  (`halfLifeFor`: `n/2`, con piso de 4 y techo de 15 videos) porque con poca muestra no se puede
+  descartar nada y con mucha sí conviene — el techo la convierte en una ventana móvil. Ningún video
+  llega a peso 0: descartar de golpe haría que las lecciones saltaran en cada publicación. El gate de
+  grupo usa `effectiveCount` (ESS de Kish, `(Σw)²/Σw²`) porque desde que los pesos son desiguales
+  "3 videos" y "3 videos de información" dejaron de ser lo mismo.
+- **La exploración no se apaga cuando se forma una lección** (`retestProbability`, epsilon-greedy con
+  `1/√n`, entre 5% y 30%). Explotar siempre lo aprendido es la trampa clásica de explorar/explotar:
+  una lección sacada de 3 videos contra 3 puede ser ruido, y sin volver a probar la alternativa el
+  sistema se queda atascado creyendo que la midió. Se re-prueba la lección con **menor muestra
+  efectiva**, que es donde más se gana. Las dimensiones bloqueadas siempre van primero: ahí explorar
+  es información gratis, no se renuncia a nada medido.
+- **Hay dos familias de dimensiones y el motor las trata igual a propósito.** Las escritas a mano
+  (`DIMENSIONS` en `learnings.ts`) agrupan por atributos derivados; las **descubiertas**
+  (`learning_dimensions` + `video_dimension_labels`) agrupan por una etiqueta que un LLM le puso al
+  guion. `allDimensions()` las normaliza al mismo contrato, y ese es justamente el mecanismo de
+  seguridad: **la IA propone, el dato dispone.** Una hipótesis absurda no tiene camino especial —
+  pasa por el mismo filtro de muestra efectiva y diferencia mínima, y simplemente nunca produce
+  lección. Por eso es seguro que las propuestas se activen solas.
+- Las dimensiones descubiertas **se miden pero no dirigen experimentos** (`exploration.ts` solo
+  conoce `MISSING_VARIANT_DIRECTIVE`). Es deliberado: una pregunta mal planteada por la IA podría
+  hacer que un guion saliera raro, y el costo de equivocarse ahí es un video perdido, no un dato
+  ausente.
+- El descubrimiento es **manual** (botón en `/analytics` → `DISCOVER_DIMENSIONS`), no un cron: proponer
+  cuesta una llamada al LLM y clasificar cuesta **una por video**, y volver a correrlo sin videos
+  nuevos de por medio paga por mirar casi la misma muestra otra vez. `MAX_ACTIVE_DISCOVERED` acota
+  cuántas pueden estar activas — no solo por costo: cuantas más preguntas le haces a la misma muestra
+  chica, más probable es que alguna dé un resultado bonito por pura casualidad.
+- **Hay experimentos de guion y experimentos de PIPELINE, y viajan distinto.** Los de guion son un
+  bloque de texto en el prompt. Los de pipeline (`PIPELINE_VARIANTS`) son datos: se deciden al
+  escribir el guion pero se aplican después, así que se persisten en `videos.exploration_plan` — sin
+  esa columna, la etapa del EDL no tiene forma de saber que este video venía con instrucciones.
+  `secondsPerScene` se aplica en el mismo prompt (decide cuántas escenas hay); `hookEffect` lo aplica
+  `applyExplorationPlan` en `build-edl.handler.ts`, después de tener el EDL, porque tanto la IA como
+  el fallback ponen golpe visual en el gancho por defecto y el punto es desviarse de ese default.
+  Al agregar una variante de pipeline, elige el valor mirando los cortes de bucket en `learnings.ts`:
+  un `secondsPerScene: 6` seguiría cayendo en "cortes medios" y el experimento no construiría nada.
+- **El feedback loop tiene dos mitades: explotar (`learnings.ts`) y explorar (`prompts/exploration.ts`).**
+  Sin la segunda, el sistema converge a hacer siempre lo mismo: el modelo, con el mismo prompt cada
+  vez, elige siempre la misma opción (los primeros 10 videos abrieron TODOS con pregunta aunque el
+  `SCRIPT_TONE_GUIDE` ofrece explícitamente la afirmación), y en cuanto se forma una lección el prompt
+  empuja todavía más hacia ese lado. `chooseExploration` lee el diagnóstico de `analyzeCoverage` y le
+  pide al guion **una** variante bloqueada por video — solo dimensiones `sin_variacion`, solo las que
+  se pueden mover escribiendo el guion, y una a la vez para que el resultado sea atribuible. Se apaga
+  sola cuando el grupo que faltaba junta muestra. No se explora en una regeneración por feedback: ahí
+  el usuario pidió un cambio concreto y un experimento encima lo contaminaría.
 - **El motor de aprendizaje solo puede aprender de atributos que VARÍAN entre videos.** Una dimensión
   donde todos los videos caen en el mismo grupo no está "esperando muestra": no puede aprender nunca,
   porque no existe el grupo contra el cual comparar. `analyzeCoverage` en `learnings.ts` distingue

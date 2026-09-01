@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import path from "node:path";
 import { estimateWordTimings } from "../captions/word-timing";
 import { concatAudioFiles } from "../ffmpeg/concat-audio";
+import type { ExplorationChoice } from "../prompts/exploration";
 import { runStage, setVideoStatus } from "../pipeline/orchestrator";
 import { STAGES } from "../pipeline/stage-context";
 import { getJobWorkspace } from "../util/tmp-workspace";
@@ -130,7 +131,7 @@ async function findBackgroundMusic(
   aiSuggestedTags: string[],
   themeTags: string[],
   minDurationSeconds: number,
-): Promise<MusicTrackRef | null> {
+): Promise<{ track: MusicTrackRef; tags: string[] } | null> {
   const combinedVariants = [aiSuggestedTags, themeTags].filter((tags) => tags.length > 1);
   const individualTags = [...aiSuggestedTags, ...themeTags, ...GENERIC_MUSIC_TAGS].filter(
     (tag, i, arr) => tag && arr.indexOf(tag) === i,
@@ -142,7 +143,9 @@ async function findBackgroundMusic(
   for (const tags of tagVariants) {
     try {
       const results = await provider.search({ tags, minDurationSeconds, perPage: 5 });
-      if (results[0]) return results[0];
+      // Se devuelve junto con las tags que funcionaron: es lo que despues permite saber que tipo de
+      // musica suena de verdad en el video (ver edl.audio.backgroundMusicTags).
+      if (results[0]) return { track: results[0], tags };
     } catch (err) {
       logger.warn(`Music search failed on ${provider.name} for tags "${tags.join(", ")}"`, {
         error: (err as Error).message,
@@ -150,6 +153,39 @@ async function findBackgroundMusic(
     }
   }
   return null;
+}
+
+/**
+ * Aplica la desviacion del experimento asignado a este video, si la tiene y le toca a este stage.
+ *
+ * Solo toca la primera escena: es la unica decision de montaje que el experimento cambia hoy, y
+ * pisar el resto del EDL borraria las decisiones editoriales de la IA sin necesidad. El
+ * `secondsPerScene` del plan no se mira aqui — ese ya se aplico al escribir el guion, decidiendo
+ * cuantas escenas hay.
+ */
+function applyExplorationPlan(
+  edl: EditDecisionList,
+  plan: ExplorationChoice | null,
+  videoId: string,
+): EditDecisionList {
+  const hookEffect = plan?.plan?.hookEffect;
+  if (!hookEffect || edl.scenes.length === 0) return edl;
+
+  logger.info(`Video ${videoId}: experimento de pipeline aplicado al gancho`, {
+    dimension: plan?.dimension,
+    hookEffect,
+  });
+
+  const scenes = edl.scenes.map((scene, index) =>
+    index === 0
+      ? { ...scene, effect: hookEffect === "none" ? ({ type: "none" } as const) : sceneKenBurns() }
+      : scene,
+  );
+  return { ...edl, scenes };
+}
+
+function sceneKenBurns() {
+  return { type: "ken_burns", direction: "in", panX: "center", panY: "center" } as const;
 }
 
 export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
@@ -217,6 +253,11 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
     // Fill in file paths the LLM doesn't know about (it only reasoned about scene indices/keywords).
     edl.audio.voiceoverPath = voiceoverPath;
 
+    // El experimento de pipeline se aplica DESPUES de tener el EDL (venga de la IA o del fallback):
+    // los dos ponen un golpe visual en el gancho por defecto, y el punto del experimento es
+    // desviarse de ese default a proposito para que la dimension pueda medirse alguna vez.
+    edl = applyExplorationPlan(edl, video.explorationPlan as ExplorationChoice | null, videoId);
+
     // El orden importa: reconcileSceneTiming corrige los indices de escena, y solo despues se pueden
     // emparejar los clips por indice — hacerlo antes asignaba el clip equivocado a cada escena
     // cuando el LLM numeraba el EDL desde 0.
@@ -245,22 +286,25 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
 
     const musicProvider = await resolveMusicProvider();
     if (musicProvider) {
-      const track = await findBackgroundMusic(
+      const found = await findBackgroundMusic(
         musicProvider,
         edl.audio.musicSuggestionTags ?? [],
         theme?.defaultMusicTags ?? [],
         Math.min(edl.totalDurationSeconds, 60),
       );
-      if (track) {
+      if (found) {
+        const { track, tags: matchedTags } = found;
         try {
           const musicPath = path.join(workspace, "background-music.mp3");
           await musicProvider.download(track, musicPath);
           edl.audio.backgroundMusicPath = musicPath;
+          edl.audio.backgroundMusicTags = matchedTags;
           logger.info(`Background music selected for video ${videoId}`, {
             provider: musicProvider.name,
             track: track.title,
             attribution: track.attribution,
             musicSuggestionTags: edl.audio.musicSuggestionTags,
+            matchedTags,
           });
         } catch (err) {
           logger.warn(`Failed to download background music for video ${videoId}, continuing without it`, {

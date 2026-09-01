@@ -120,6 +120,15 @@ export const editDecisionListSchema = z.object({
     backgroundMusicTrackId: z.string().uuid().optional(),
     /** Titulo legible de la pista, para mostrarlo en la lista de versiones sin otra consulta. */
     backgroundMusicLabel: z.string().optional(),
+    /**
+     * Las tags que REALMENTE encontraron la pista, no las que se pidieron.
+     *
+     * `musicSuggestionTags` es lo que la IA queria; la busqueda prueba varias combinaciones y puede
+     * terminar cayendo a las tags del tema o a las genericas. Sin registrar cual funciono, cruzar el
+     * tipo de musica contra el rendimiento estaria etiquetando cada video con una musica que
+     * posiblemente no es la que suena.
+     */
+    backgroundMusicTags: z.array(z.string()).optional(),
     /** Tags de mood/genero en ingles sugeridos por la IA para buscar musica libre de copyright
      * que encaje con el tono del video (ver EDL_JSON_INSTRUCTIONS / prompts de cada AIProvider). */
     musicSuggestionTags: z.array(z.string()).optional(),

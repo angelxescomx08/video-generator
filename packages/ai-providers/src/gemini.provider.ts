@@ -3,12 +3,21 @@ import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from
 import { estimateGeminiCost } from "./pricing";
 import { geminiCharBudget, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
-import { MUSIC_SUGGESTION_INSTRUCTION, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
+import {
+  buildDimensionClassificationPrompt,
+  buildDimensionProposalPrompt,
+  MUSIC_SUGGESTION_INSTRUCTION,
+  SCENE_EFFECT_INSTRUCTION,
+  VISUAL_KEYWORDS_INSTRUCTION,
+} from "./types";
 import type {
   AICallResult,
   AIProvider,
+  DimensionClassificationRequest,
+  DimensionProposalRequest,
   EDLGenerationRequest,
   EmbeddingRequest,
+  ProposedDimension,
   ScriptGenerationRequest,
   ScriptGenerationResult,
 } from "./types";
@@ -133,6 +142,26 @@ const EDL_RESPONSE_SCHEMA = {
   required: ["version", "format", "totalDurationSeconds", "audio", "scenes"],
 } as const;
 
+const DIMENSION_PROPOSAL_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    proposals: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          label: { type: "STRING" },
+          question: { type: "STRING" },
+          buckets: { type: "ARRAY", items: { type: "STRING" } },
+          rationale: { type: "STRING" },
+        },
+        required: ["label", "question", "buckets", "rationale"],
+      },
+    },
+  },
+  required: ["proposals"],
+} as const;
+
 /** Quita fences markdown (```json ... ```) que a veces envuelven la respuesta antes de parsear. */
 function parseJsonLenient(text: string): unknown {
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -247,6 +276,25 @@ export class GeminiProvider implements AIProvider {
    * `text-embedding-004` quedo RETIRADO y responde 404; el modelo vigente sale de
    * GEMINI_EMBEDDING_MODEL.
    */
+  async proposeDimensions(req: DimensionProposalRequest): Promise<AICallResult<ProposedDimension[]>> {
+    const { json, cost } = await this.generateJson(
+      "Eres un analista de contenido que busca patrones en guiones de video. Propones hipotesis, no conclusiones.",
+      buildDimensionProposalPrompt(req),
+      DIMENSION_PROPOSAL_SCHEMA,
+    );
+    const proposals = (json as { proposals?: ProposedDimension[] }).proposals ?? [];
+    return { result: proposals, cost };
+  }
+
+  async classifyDimension(req: DimensionClassificationRequest): Promise<AICallResult<string>> {
+    const { json, cost } = await this.generateJson(
+      "Clasificas guiones. Contestas solo con una de las opciones dadas, copiada literal.",
+      buildDimensionClassificationPrompt(req),
+      { type: "OBJECT", properties: { bucket: { type: "STRING", enum: req.buckets } }, required: ["bucket"] },
+    );
+    return { result: String((json as { bucket?: string }).bucket ?? ""), cost };
+  }
+
   async embed(req: EmbeddingRequest): Promise<AICallResult<number[]>> {
     const model = this.options.embeddingModel;
     const text = truncateForEmbedding(req.text, geminiCharBudget(model));

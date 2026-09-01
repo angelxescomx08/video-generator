@@ -20,7 +20,10 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
 
   await runStage(videoId, STAGES.script!, async () => {
     const provider = await resolveProvider();
-    const { request, cost: memoryCost } = await buildScriptGenerationRequest(theme, video);
+    const { request, exploration, cost: memoryCost } = await buildScriptGenerationRequest(theme, video);
+    // Se guarda antes de generar: si el experimento es de pipeline, quien lo aplica es el stage del
+    // EDL, y para entonces esta funcion ya no existe.
+    await db.update(videos).set({ explorationPlan: exploration }).where(eq(videos.id, videoId));
     const { result, cost: scriptCost } = await provider.generateScript(request);
 
     // Red de seguridad sin costo de tokens extra: si el LLM ignoro el limite de palabras del

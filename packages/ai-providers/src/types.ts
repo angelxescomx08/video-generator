@@ -144,6 +144,53 @@ export interface AICallResult<T> {
   cost: ProviderCost;
 }
 
+/** Un guion que rindio bien o mal, como se le muestra a la IA para que busque que los distingue. */
+export interface ScriptOutcomeSample {
+  script: string;
+  /** La metrica con la que se juzgo, ya en porcentaje. */
+  outcomeValue: number;
+}
+
+export interface DimensionProposalRequest {
+  best: ScriptOutcomeSample[];
+  worst: ScriptOutcomeSample[];
+  /** Nombre de la metrica que separa a unos de otros ("porcentaje del video visto"). */
+  outcomeLabel: string;
+  /** Lo que el motor YA mide, para que no proponga una pregunta que ya existe. */
+  alreadyMeasured: string[];
+  maxProposals: number;
+}
+
+export interface ProposedDimension {
+  label: string;
+  question: string;
+  buckets: string[];
+  rationale: string;
+}
+
+export interface DimensionClassificationRequest {
+  script: string;
+  question: string;
+  buckets: string[];
+}
+
+/** Instrucciones compartidas por todos los providers para el descubrimiento de dimensiones. */
+export const DIMENSION_PROPOSAL_INSTRUCTION =
+  "Cada propuesta debe cumplir TODO esto, o no sirve:\n" +
+  "- La pregunta se tiene que poder contestar leyendo UNICAMENTE el texto del guion, sin ver el video" +
+  " ni conocer sus estadisticas.\n" +
+  "- Tiene que partir los guiones en grupos de tamano parecido. Una pregunta que contesta igual para" +
+  " el 95% de los guiones no sirve para comparar nada.\n" +
+  "- `buckets` debe traer entre 2 y 3 respuestas posibles, excluyentes entre si y exhaustivas" +
+  " (cualquier guion debe caer en una).\n" +
+  "- No repitas nada de lo que ya se mide.\n" +
+  "- Debe ser algo que se pueda DECIDIR al escribir el siguiente guion, no un accidente del tema.\n" +
+  "- `rationale`: que viste en los guiones buenos que no esta en los malos. Se honesto si la senal es" +
+  " debil; con esta cantidad de guiones puede no haber ningun patron real, y decirlo es una respuesta" +
+  " valida.\n" +
+  "- `label`: 2-4 palabras en minusculas y con espacios, como se leeria en un tablero" +
+  ' ("estructura del guion", "tipo de conflicto"). Nada de snake_case ni nombres de variable.';
+
 export interface AIProvider {
   readonly name: string;
   /**
@@ -154,6 +201,51 @@ export interface AIProvider {
   readonly embeddingCharBudget?: number;
   generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>>;
   generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>>;
+  /**
+   * Propone preguntas nuevas que podrian explicar por que unos guiones retienen mas que otros.
+   *
+   * Solo genera la HIPOTESIS. No decide si es cierta: eso lo resuelve despues la agregacion sobre
+   * datos reales, que es la unica parte del sistema con derecho a concluir algo.
+   */
+  proposeDimensions(req: DimensionProposalRequest): Promise<AICallResult<ProposedDimension[]>>;
+  /** Contesta una pregunta propuesta sobre UN guion, eligiendo uno de los buckets. */
+  classifyDimension(req: DimensionClassificationRequest): Promise<AICallResult<string>>;
   embed(req: EmbeddingRequest): Promise<AICallResult<number[]>>;
   healthCheck(): Promise<boolean>;
+}
+
+/** Prompt de propuesta, compartido: la unica diferencia entre providers es como se pide el JSON. */
+export function buildDimensionProposalPrompt(req: DimensionProposalRequest): string {
+  const sample = (s: ScriptOutcomeSample, i: number) =>
+    `--- Guion ${i + 1} (${s.outcomeValue.toFixed(1)}% de ${req.outcomeLabel}) ---\n${s.script}`;
+
+  return `Estos son los guiones que MEJOR rindieron de un canal:
+
+${req.best.map(sample).join("\n\n")}
+
+Y estos los que PEOR rindieron:
+
+${req.worst.map(sample).join("\n\n")}
+
+El sistema ya mide estas caracteristicas y no aprendio nada nuevo de ellas:
+${req.alreadyMeasured.map((m) => `- ${m}`).join("\n")}
+
+Propon hasta ${req.maxProposals} PREGUNTAS nuevas sobre el contenido o la construccion del guion que podrian explicar la diferencia y que NO esten ya en esa lista.
+
+${DIMENSION_PROPOSAL_INSTRUCTION}
+
+Responde JSON: { "proposals": [{ "label": string, "question": string, "buckets": string[], "rationale": string }] }`;
+}
+
+/** Prompt de clasificacion, compartido por los cuatro providers. */
+export function buildDimensionClassificationPrompt(req: DimensionClassificationRequest): string {
+  return `Lee este guion y contesta la pregunta eligiendo EXACTAMENTE una de las opciones dadas.
+
+PREGUNTA: ${req.question}
+OPCIONES (copia una literal, tal cual): ${req.buckets.map((b) => `"${b}"`).join(" | ")}
+
+GUION:
+${req.script}
+
+Responde JSON: { "bucket": "<una de las opciones, copiada literal>" }`;
 }

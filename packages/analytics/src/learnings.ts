@@ -1,4 +1,4 @@
-import { db, publishedVideos, videoStats, videos } from "@video-generator/db";
+import { db, learningDimensions, publishedVideos, videoDimensionLabels, videoStats, videos } from "@video-generator/db";
 import type {
   DimensionCoverage,
   DimensionStatus,
@@ -26,8 +26,65 @@ import { extractVideoAttributes, type VideoAttributes } from "./video-attributes
  * las mismas lecciones que se le estan pasando al modelo.
  */
 
-/** Videos minimos por grupo para comparar. Con menos, la diferencia es anecdota, no patron. */
+/**
+ * Muestra EFECTIVA minima por grupo para comparar (ver `PerformanceBucket.effectiveCount`).
+ *
+ * Se mide en muestra efectiva y no en videos crudos porque desde que los videos pesan distinto las
+ * dos cosas dejaron de ser lo mismo: tres videos viejos detras de uno reciente no sostienen una
+ * comparacion, aunque cuenten tres. Como `effectiveCount <= count` siempre, este umbral tambien
+ * garantiza el minimo de 3 videos reales que habia antes.
+ */
 const MIN_SAMPLES_PER_BUCKET = 3;
+
+/**
+ * Vida media de los pesos, EN VIDEOS (no en dias): cada `halfLife` videos hacia atras, un video pesa
+ * la mitad. Se acota entre estos dos limites.
+ *
+ * Va por posicion y no por fecha a proposito. Un canal que publica en rachas —tres videos en una
+ * semana y luego un mes parado— haria que el decaimiento por calendario castigara a toda una racha
+ * por igual, cuando lo que importa es "que tan atras en tu historial esta esto".
+ */
+const HALF_LIFE_MIN_VIDEOS = 4;
+const HALF_LIFE_MAX_VIDEOS = 15;
+
+/**
+ * La vida media crece con el tamano del canal, pero con tope.
+ *
+ * Es el compromiso central de ponderar por recencia: una ventana corta se adapta rapido pero se
+ * queda sin datos, y una larga tiene datos pero tarda en notar un cambio. Con pocos videos no se
+ * puede permitir descartar nada (de ahi el piso), y con muchos si conviene que lo viejo pese poco
+ * (de ahi el techo, que convierte esto en una ventana movil de ~15 videos por mucho que crezca el
+ * canal). En medio, `n/2` mantiene la forma de la curva estable mientras el canal es chico.
+ */
+function halfLifeFor(sampleCount: number): number {
+  return Math.min(HALF_LIFE_MAX_VIDEOS, Math.max(HALF_LIFE_MIN_VIDEOS, sampleCount / 2));
+}
+
+/**
+ * Peso de cada muestra por su posicion en el historial (0 = el mas reciente).
+ *
+ * Nadie llega a cero: el video mas viejo de un canal grande pesa ~0.1, no 0. Descartar de golpe
+ * convertiria cada publicacion en un salto en las lecciones, y con muestras de este tamano eso se
+ * ve como si el patron cambiara cuando lo unico que cambio fue quien entra en la ventana.
+ */
+function recencyWeights(sampleCount: number): number[] {
+  const halfLife = halfLifeFor(sampleCount);
+  return Array.from({ length: sampleCount }, (_, rank) => 0.5 ** (rank / halfLife));
+}
+
+/**
+ * Tamano de muestra efectivo de Kish: `(Σw)²/Σw²`.
+ *
+ * Con pesos iguales devuelve exactamente n; mientras mas desparejos, mas baja. Es la forma estandar
+ * de responder "¿cuanta muestra me queda de verdad despues de ponderar?", que es justo lo que hay
+ * que vigilar para que dar mas peso a lo reciente no acabe sosteniendo lecciones sobre un video.
+ */
+function effectiveSampleSize(weights: number[]): number {
+  if (weights.length === 0) return 0;
+  const sum = weights.reduce((total, w) => total + w, 0);
+  const sumSquares = weights.reduce((total, w) => total + w * w, 0);
+  return sumSquares === 0 ? 0 : (sum * sum) / sumSquares;
+}
 
 /** Diferencia minima en puntos porcentuales para que valga la pena mencionar el patron. */
 const MIN_DELTA_POINTS = 5;
@@ -43,16 +100,29 @@ interface Outcomes {
 }
 
 export interface LearningSample {
+  videoId: string;
   attrs: VideoAttributes;
   outcomes: Outcomes;
+  /** Peso por recencia (1 el mas reciente, decayendo hacia atras). Ver `recencyWeights`. */
+  weight: number;
+  /** Etiquetas de las dimensiones descubiertas por la IA, por id de dimension. */
+  discovered: Record<string, string>;
 }
 
 /**
  * Una dimension a analizar: como agrupar los videos y con que metrica calificar ese grupo. La
  * metrica no es intercambiable — el tipo de gancho se juzga por la retencion inicial, mientras que el
  * numero de escenas se juzga por el porcentaje total visto. Cruzarlas daria conclusiones falsas.
+ *
+ * Esta es la variante escrita a mano: agrupa mirando los atributos derivados del video.
+ *
+ * Convive con las dimensiones DESCUBIERTAS (`learning_dimensions`), que agrupan por una etiqueta que
+ * un LLM le puso al guion. Las dos terminan siendo el mismo contrato (`Dimension`) para que el resto
+ * del motor no tenga que saber de donde salio cada pregunta: se promedian, se filtran por muestra y
+ * se comparan exactamente igual. Esa uniformidad es lo que hace seguro dejar que la IA proponga
+ * preguntas — una hipotesis mala no tiene un camino especial, pasa por el mismo filtro que todo.
  */
-interface Dimension {
+interface AttributeDimension {
   label: string;
   outcome: keyof Outcomes;
   outcomeLabel: string;
@@ -60,7 +130,40 @@ interface Dimension {
   bucket: (attrs: VideoAttributes) => string | null;
 }
 
-const DIMENSIONS: readonly Dimension[] = [
+/** Una dimension ya normalizada, venga del codigo o de la base. */
+interface Dimension {
+  label: string;
+  outcome: keyof Outcomes;
+  outcomeLabel: string;
+  bucket: (sample: LearningSample) => string | null;
+}
+
+/** Una pregunta descubierta por la IA, tal como se guardo en `learning_dimensions`. */
+export interface DiscoveredDimension {
+  id: string;
+  label: string;
+  outcome: keyof Outcomes;
+}
+
+const OUTCOME_LABELS: Record<keyof Outcomes, string> = {
+  retentionAtStart: "retencion en los primeros segundos",
+  avgViewPercentage: "porcentaje del video visto",
+};
+
+/** Junta las dos familias de dimensiones bajo el mismo contrato. */
+function allDimensions(discovered: DiscoveredDimension[]): Dimension[] {
+  return [
+    ...DIMENSIONS.map((d) => ({ ...d, bucket: (sample: LearningSample) => d.bucket(sample.attrs) })),
+    ...discovered.map((d) => ({
+      label: d.label,
+      outcome: d.outcome,
+      outcomeLabel: OUTCOME_LABELS[d.outcome],
+      bucket: (sample: LearningSample) => sample.discovered[d.id] ?? null,
+    })),
+  ];
+}
+
+const DIMENSIONS: readonly AttributeDimension[] = [
   {
     label: "tipo de gancho",
     outcome: "retentionAtStart",
@@ -112,6 +215,15 @@ const DIMENSIONS: readonly Dimension[] = [
     outcome: "avgViewPercentage",
     outcomeLabel: "porcentaje del video visto",
     bucket: (a) => (a.hasMusic ? "con musica de fondo" : "sin musica de fondo"),
+  },
+  {
+    // Distinta pregunta que "musica de fondo": ahi se compara musica contra silencio, aqui se compara
+    // un tipo de musica contra otro. Se califica por el video completo y no por el gancho porque el
+    // mood no decide el primer segundo, decide si te quedas cuando la historia se pone lenta.
+    label: "tipo de musica",
+    outcome: "avgViewPercentage",
+    outcomeLabel: "porcentaje del video visto",
+    bucket: (a) => (a.musicMood === null ? null : `musica ${a.musicMood}`),
   },
   // Las tres dimensiones visuales que siguen salen de la guia de retencion para formato corto: el
   // espectador se despega cuando la imagen deja de cambiar, asi que lo que se mide es cada cuanto
@@ -172,12 +284,15 @@ const DIMENSIONS: readonly Dimension[] = [
  * datos es mejor no decirle nada al modelo que darle una correlacion de dos videos.
  */
 export async function getPerformanceLearnings(): Promise<PerformanceLearning[]> {
-  return analyzeLearnings(await loadLearningSamples());
+  const [samples, discovered] = await Promise.all([loadLearningSamples(), loadDiscoveredDimensions()]);
+  return analyzeLearnings(samples, discovered);
 }
 
 export interface LearningsReport {
   learnings: PerformanceLearning[];
   coverage: DimensionCoverage[];
+  /** Videos medibles detras de todo el reporte. Es la medida de cuanta confianza merece. */
+  sampleCount: number;
 }
 
 /**
@@ -188,17 +303,21 @@ export interface LearningsReport {
  * recorrer en JS exactamente las mismas filas.
  */
 export async function getLearningsReport(): Promise<LearningsReport> {
-  const samples = await loadLearningSamples();
-  return { learnings: analyzeLearnings(samples), coverage: analyzeCoverage(samples) };
+  const [samples, discovered] = await Promise.all([loadLearningSamples(), loadDiscoveredDimensions()]);
+  return {
+    learnings: analyzeLearnings(samples, discovered),
+    coverage: analyzeCoverage(samples, discovered),
+    sampleCount: samples.length,
+  };
 }
 
 /**
  * La parte pura: dadas las muestras, saca las lecciones. Separada de la carga para poder testearla
  * sin base de datos, y para que la UI pueda reutilizar las mismas muestras que ya trajo.
  */
-export function analyzeLearnings(samples: LearningSample[]): PerformanceLearning[] {
+export function analyzeLearnings(samples: LearningSample[], discovered: DiscoveredDimension[] = []): PerformanceLearning[] {
   const learnings: PerformanceLearning[] = [];
-  for (const dimension of DIMENSIONS) {
+  for (const dimension of allDimensions(discovered)) {
     const learning = analyzeDimension(dimension, samples);
     if (learning) learnings.push(learning);
   }
@@ -224,6 +343,7 @@ export async function loadLearningSamples(): Promise<LearningSample[]> {
       engagedViews: videoStats.engagedViews,
       avgViewPercentage: videoStats.avgViewPercentage,
       retentionAtStartPercentage: videoStats.retentionAtStartPercentage,
+      publishedAt: publishedVideos.publishedAt,
       video: videos,
     })
     .from(videoStats)
@@ -232,21 +352,57 @@ export async function loadLearningSamples(): Promise<LearningSample[]> {
     .where(eq(publishedVideos.status, "published"))
     .orderBy(videoStats.publishedVideoId, desc(videoStats.capturedAt));
 
-  const samples: LearningSample[] = [];
-  for (const row of rows) {
-    const sampleSize = row.engagedViews ?? row.views ?? 0;
-    if (sampleSize < MIN_VIEWS_FOR_LEARNING) continue;
-    if (row.videoAgeDays !== null && row.videoAgeDays < MIN_DAYS_FOR_LEARNING) continue;
+  // El ORDER BY de arriba lo fija `DISTINCT ON` (tiene que empezar por la columna distinguida), asi
+  // que el orden por recencia se hace aqui — sobre una fila por video, no sobre el historico.
+  const usable = rows
+    .filter((row) => {
+      const sampleSize = row.engagedViews ?? row.views ?? 0;
+      if (sampleSize < MIN_VIEWS_FOR_LEARNING) return false;
+      if (row.videoAgeDays !== null && row.videoAgeDays < MIN_DAYS_FOR_LEARNING) return false;
+      return row.retentionAtStartPercentage !== null || row.avgViewPercentage !== null;
+    })
+    .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0));
 
-    const outcomes: Outcomes = {
+  // Las etiquetas de las dimensiones descubiertas van en una sola consulta para todo el canal: son
+  // (videos publicados x dimensiones activas) filas, un orden de magnitud menor que `video_stats`, y
+  // pedirlas por video seria una consulta por video en cada render de analiticas.
+  const labelRows = await db
+    .select({
+      videoId: videoDimensionLabels.videoId,
+      dimensionId: videoDimensionLabels.dimensionId,
+      bucket: videoDimensionLabels.bucket,
+    })
+    .from(videoDimensionLabels)
+    .innerJoin(learningDimensions, eq(videoDimensionLabels.dimensionId, learningDimensions.id))
+    .where(eq(learningDimensions.status, "active"));
+
+  const labelsByVideo = new Map<string, Record<string, string>>();
+  for (const row of labelRows) {
+    const existing = labelsByVideo.get(row.videoId) ?? {};
+    existing[row.dimensionId] = row.bucket;
+    labelsByVideo.set(row.videoId, existing);
+  }
+
+  const weights = recencyWeights(usable.length);
+  return usable.map((row, rank) => ({
+    videoId: row.video.id,
+    attrs: extractVideoAttributes(row.video),
+    outcomes: {
       retentionAtStart: toNumber(row.retentionAtStartPercentage),
       avgViewPercentage: toNumber(row.avgViewPercentage),
-    };
-    if (outcomes.retentionAtStart === undefined && outcomes.avgViewPercentage === undefined) continue;
+    },
+    weight: weights[rank]!,
+    discovered: labelsByVideo.get(row.video.id) ?? {},
+  }));
+}
 
-    samples.push({ attrs: extractVideoAttributes(row.video), outcomes });
-  }
-  return samples;
+/** Las preguntas que la IA descubrio y siguen activas. */
+export async function loadDiscoveredDimensions(): Promise<DiscoveredDimension[]> {
+  const rows = await db
+    .select({ id: learningDimensions.id, label: learningDimensions.label, outcome: learningDimensions.outcome })
+    .from(learningDimensions)
+    .where(eq(learningDimensions.status, "active"));
+  return rows.map((r) => ({ id: r.id, label: r.label, outcome: r.outcome as keyof Outcomes }));
 }
 
 export interface LearningReadiness {
@@ -298,26 +454,43 @@ export async function getLearningReadiness(): Promise<LearningReadiness> {
   };
 }
 
+/** Una observacion dentro de un grupo: el valor de la metrica y cuanto pesa por ser reciente. */
+interface WeightedValue {
+  value: number;
+  weight: number;
+}
+
 /** Reparte las muestras en los grupos de una dimension, sin filtrar por tamano todavia. */
-function bucketize(dimension: Dimension, samples: LearningSample[]): Map<string, number[]> {
-  const buckets = new Map<string, number[]>();
+function bucketize(dimension: Dimension, samples: LearningSample[]): Map<string, WeightedValue[]> {
+  const buckets = new Map<string, WeightedValue[]>();
   for (const sample of samples) {
     const outcome = sample.outcomes[dimension.outcome];
     if (outcome === undefined) continue;
-    const key = dimension.bucket(sample.attrs);
+    const key = dimension.bucket(sample);
     if (key === null) continue;
     const list = buckets.get(key) ?? [];
-    list.push(outcome);
+    list.push({ value: outcome, weight: sample.weight });
     buckets.set(key, list);
   }
   return buckets;
 }
 
-/** Los grupos que llegan al minimo de videos, ya promediados y ordenados de mejor a peor. */
-function usableBuckets(buckets: Map<string, number[]>): PerformanceBucket[] {
+/** Resume un grupo: promedio ponderado por recencia, videos crudos y muestra efectiva. */
+function summarizeBucket(label: string, values: WeightedValue[]): PerformanceBucket {
+  const weights = values.map((v) => v.weight);
+  return {
+    label,
+    mean: weightedMean(values),
+    count: values.length,
+    effectiveCount: effectiveSampleSize(weights),
+  };
+}
+
+/** Los grupos con muestra efectiva suficiente, ya promediados y ordenados de mejor a peor. */
+function usableBuckets(buckets: Map<string, WeightedValue[]>): PerformanceBucket[] {
   return [...buckets.entries()]
-    .filter(([, values]) => values.length >= MIN_SAMPLES_PER_BUCKET)
-    .map(([label, values]) => ({ label, mean: mean(values), count: values.length }))
+    .map(([label, values]) => summarizeBucket(label, values))
+    .filter((bucket) => bucket.effectiveCount >= MIN_SAMPLES_PER_BUCKET)
     .sort((a, b) => b.mean - a.mean);
 }
 
@@ -330,8 +503,8 @@ function usableBuckets(buckets: Map<string, number[]>): PerformanceBucket[] {
  * arregla publicando) de "sin variacion" (no se arregla nunca, porque todos los videos son iguales
  * en ese atributo y no existe el grupo contrario).
  */
-export function analyzeCoverage(samples: LearningSample[]): DimensionCoverage[] {
-  return DIMENSIONS.map((dimension): DimensionCoverage => {
+export function analyzeCoverage(samples: LearningSample[], discovered: DiscoveredDimension[] = []): DimensionCoverage[] {
+  return allDimensions(discovered).map((dimension): DimensionCoverage => {
     const buckets = bucketize(dimension, samples);
     const groups = [...buckets.entries()]
       .map(([label, values]) => ({ label, count: values.length }))
@@ -374,8 +547,11 @@ function analyzeDimension(dimension: Dimension, samples: LearningSample[]): Perf
   };
 }
 
-function mean(values: number[]): number {
-  return values.reduce((total, value) => total + value, 0) / values.length;
+/** Promedio ponderado: los videos recientes mueven mas la aguja que los viejos. */
+function weightedMean(values: WeightedValue[]): number {
+  const totalWeight = values.reduce((total, v) => total + v.weight, 0);
+  if (totalWeight === 0) return 0;
+  return values.reduce((total, v) => total + v.value * v.weight, 0) / totalWeight;
 }
 
 /** Las columnas `numeric` de Postgres llegan como string; un null debe quedar en undefined, no en 0. */

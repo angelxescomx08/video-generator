@@ -2,12 +2,15 @@ import { editDecisionListSchema, type EditDecisionList } from "@video-generator/
 import { ollamaCost } from "./pricing";
 import { EMBEDDING_CHAR_BUDGETS, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
-import { MUSIC_SUGGESTION_INSTRUCTION, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
+import { buildDimensionClassificationPrompt, buildDimensionProposalPrompt, MUSIC_SUGGESTION_INSTRUCTION, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
   AICallResult,
   AIProvider,
+  DimensionClassificationRequest,
+  DimensionProposalRequest,
   EDLGenerationRequest,
   EmbeddingRequest,
+  ProposedDimension,
   ScriptGenerationRequest,
   ScriptGenerationResult,
 } from "./types";
@@ -119,6 +122,25 @@ ${EDL_JSON_INSTRUCTIONS}`;
       throw new Error(`Ollama returned an invalid EDL: ${parsed.error.message}`);
     }
     return { result: parsed.data, cost: ollamaCost(this.options.model) };
+  }
+
+  async proposeDimensions(req: DimensionProposalRequest): Promise<AICallResult<ProposedDimension[]>> {
+    const raw = await this.chatJson(
+      "Eres un analista de contenido que busca patrones en guiones de video. Propones hipotesis, no conclusiones.",
+      buildDimensionProposalPrompt(req),
+    );
+    return {
+      result: (raw as { proposals?: ProposedDimension[] }).proposals ?? [],
+      cost: ollamaCost(this.options.model),
+    };
+  }
+
+  async classifyDimension(req: DimensionClassificationRequest): Promise<AICallResult<string>> {
+    const raw = await this.chatJson(
+      "Clasificas guiones. Contestas solo con una de las opciones dadas, copiada literal.",
+      buildDimensionClassificationPrompt(req),
+    );
+    return { result: String((raw as { bucket?: string }).bucket ?? ""), cost: ollamaCost(this.options.model) };
   }
 
   async embed(req: EmbeddingRequest): Promise<AICallResult<number[]>> {

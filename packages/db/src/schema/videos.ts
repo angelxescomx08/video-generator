@@ -50,6 +50,16 @@ export const videos = pgTable(
     currentVersionId: uuid("current_version_id"),
     /** Feedback que disparo la regeneracion en curso; se limpia al completar el render. */
     pendingFeedbackId: uuid("pending_feedback_id"),
+    /**
+     * El experimento que se le asigno a este video (`ExplorationChoice` del worker), si lleva uno.
+     *
+     * Vive en la fila del video y no en el payload de la cola porque el experimento se DECIDE al
+     * escribir el guion pero algunos se APLICAN al montar el EDL, dos stages despues. Sin esto, la
+     * etapa del EDL no tiene forma de saber que este video venia con instrucciones, y las
+     * dimensiones que se deciden en el pipeline (el golpe visual del gancho, por ejemplo) no se
+     * pueden experimentar nunca: quedan clavadas en lo que diga la guia por defecto.
+     */
+    explorationPlan: jsonb("exploration_plan"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

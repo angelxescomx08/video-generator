@@ -30,6 +30,7 @@ import type { DimensionCoverage, PerformanceLearning } from "@video-generator/ty
 import { db, publishedVideos, videos } from "@/lib/db";
 import { Badge } from "@/components/ui/badge";
 import { SyncAllStatsButton } from "@/components/sync-all-stats-button";
+import { DiscoverDimensionsButton } from "@/components/discover-dimensions-button";
 import { ChartFrame } from "@/components/charts/chart-frame";
 import { LineChart } from "@/components/charts/line-chart";
 import { ColumnChart } from "@/components/charts/column-chart";
@@ -684,15 +685,20 @@ function LearningsSection({
               title={learning.dimension}
               description={`${learning.recommendation} Medido sobre ${learning.sampleSize} video(s) por ${learning.outcomeLabel}.`}
               howToRead={{
-                measures: `Los videos se parten en grupos segun su ${learning.dimension}, y cada grupo se califica con su ${learning.outcomeLabel} media.`,
-                read: "La distancia entre la barra mas larga y la mas corta es la leccion. Al lado de cada barra va cuantos videos la sostienen: con 3 es una pista, con 20 es una regla.",
-                act: "Esto ya se le esta pasando a la IA al escribir el siguiente guion. Si no estas de acuerdo con la conclusion, la forma de cambiarla es publicar videos del grupo perdedor y medirlos, no editar el prompt.",
+                measures: `Los videos se parten en grupos segun su ${learning.dimension}, y cada grupo se califica con su ${learning.outcomeLabel} media, PONDERADA por recencia: un video reciente mueve el promedio mas que uno viejo.`,
+                read: "La distancia entre la barra mas larga y la mas corta es la leccion. Al lado de cada barra va cuantos videos la sostienen: con 3 es una pista, con 20 es una regla. La columna 'Peso efectivo' de la tabla es cuantos videos valen esos videos una vez ponderados — si es mucho menor que la cuenta, el grupo se apoya casi solo en los mas recientes.",
+                act: "Esto ya se le esta pasando a la IA al escribir el siguiente guion. Aun asi, de vez en cuando genera un video con la opcion perdedora a proposito, para comprobar que la leccion no era casualidad. Si no estas de acuerdo con la conclusion, la forma de cambiarla es publicar videos del grupo perdedor y medirlos, no editar el prompt.",
                 source:
-                  "Solo entran videos con vistas y dias suficientes para que el porcentaje sea estable, y solo grupos de 3 videos o mas.",
+                  "Solo entran videos con vistas y dias suficientes para que el porcentaje sea estable, y solo grupos cuyo peso efectivo llega a 3.",
               }}
               table={{
-                columns: ["Grupo", learning.outcomeLabel, "Videos"],
-                rows: learning.buckets.map((b) => [b.label, `${b.mean.toFixed(1)}%`, b.count]),
+                columns: ["Grupo", learning.outcomeLabel, "Videos", "Peso efectivo"],
+                rows: learning.buckets.map((b) => [
+                  b.label,
+                  `${b.mean.toFixed(1)}%`,
+                  b.count,
+                  b.effectiveCount.toFixed(1),
+                ]),
               }}
             >
               <BarChart
@@ -710,6 +716,7 @@ function LearningsSection({
       )}
 
       <CoverageSection coverage={coverage} />
+      <DiscoverDimensionsButton usableSamples={readiness.usableSamples} />
     </section>
   );
 }

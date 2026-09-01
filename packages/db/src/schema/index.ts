@@ -11,3 +11,4 @@ export * from "./video-stats";
 export * from "./provider-configs";
 export * from "./app-settings";
 export * from "./music-tracks";
+export * from "./learning-dimensions";

@@ -4,7 +4,9 @@ import type { Theme, Video } from "@video-generator/db";
 import type { ProviderCost } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import { getAvoidFacts, getRecentFeedback, retrieveMemoryContext } from "../memory/retrieve";
-import { getPerformanceLearnings } from "@video-generator/analytics";
+import { getLearningsReport } from "@video-generator/analytics";
+import { buildExplorationBlock, chooseExploration, type ExplorationChoice } from "./exploration";
+import { logger } from "../util/logger";
 
 const REPEATABLE_FACT_TYPES = ["bible_verse_used", "quote_used", "title_used"] as const;
 
@@ -14,20 +16,33 @@ export const WORDS_PER_MINUTE = 150;
 export async function buildScriptGenerationRequest(
   theme: Theme,
   video: Video,
-): Promise<{ request: ScriptGenerationRequest; cost: ProviderCost }> {
+): Promise<{ request: ScriptGenerationRequest; exploration: ExplorationChoice | null; cost: ProviderCost }> {
   const queryText = `${theme.name} ${video.topic ?? ""}`.trim();
 
-  const [memory, avoidFacts, recentFeedback, performanceLearnings, regenerationInstruction] = await Promise.all([
+  const [memory, avoidFacts, recentFeedback, learningsReport, regenerationInstruction] = await Promise.all([
     retrieveMemoryContext(theme.id, queryText),
     getAvoidFacts(theme.id, [...REPEATABLE_FACT_TYPES]),
     getRecentFeedback(theme.id),
     // Global a proposito, sin filtrar por tema: como se escribe un gancho que retiene no es una
     // particularidad del tema, y limitarlo por tema tira casi toda la muestra en un canal chico.
-    getPerformanceLearnings(),
+    // Se pide el reporte completo (lecciones + diagnostico) porque las dos mitades del bucle salen
+    // de ahi: lo aprendido se explota, y lo que no se pudo aprender se explora.
+    getLearningsReport(),
     resolveRegenerationInstruction(video.pendingFeedbackId),
   ]);
 
   const targetDurationSeconds = video.targetDurationSeconds ?? (video.format === "short" ? 90 : 300);
+
+  // Una regeneracion nace de feedback concreto del usuario sobre ESTE video: meterle encima un
+  // experimento le cambiaria el gancho por razones que no tienen nada que ver con lo que pidio.
+  const exploration = regenerationInstruction
+    ? null
+    : chooseExploration(learningsReport.coverage, learningsReport.learnings, learningsReport.sampleCount);
+  if (exploration) {
+    logger.info(`Video ${video.id}: experimento de ${exploration.kind} en "${exploration.dimension}"`, {
+      grupoDeReferencia: exploration.referenceBucket,
+    });
+  }
 
   return {
     request: {
@@ -40,10 +55,20 @@ export async function buildScriptGenerationRequest(
       memoryContext: memory.items,
       avoidFacts,
       recentFeedback,
-      performanceLearnings,
+      performanceLearnings: learningsReport.learnings,
       regenerationInstruction,
-      styleGuide: buildStyleGuide(targetDurationSeconds, video.format),
+      // El experimento va al final del styleGuide, despues del tono: es una excepcion puntual a esa
+      // guia y tiene que leerse despues de ella para que gane.
+      styleGuide: [
+        buildStyleGuide(targetDurationSeconds, video.format, exploration?.plan?.secondsPerScene),
+        exploration ? buildExplorationBlock(exploration) : null,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
     },
+    // Lo devuelve para que el handler lo guarde en la fila del video: los experimentos de pipeline se
+    // deciden aqui pero se aplican al montar el EDL, dos stages despues.
+    exploration,
     cost: memory.cost,
   };
 }
@@ -85,17 +110,27 @@ export function computeWordBudget(targetDurationSeconds: number): { targetWords:
  */
 const SECONDS_PER_SCENE = { short: 5, long: 10 } as const;
 
-function buildStyleGuide(targetDurationSeconds: number, format: "long" | "short"): string {
+function buildStyleGuide(
+  targetDurationSeconds: number,
+  format: "long" | "short",
+  /** Override del experimento de "ritmo de corte"; sin el, manda `SECONDS_PER_SCENE`. */
+  secondsPerSceneOverride?: number,
+): string {
   const { minWords, maxWords } = computeWordBudget(targetDurationSeconds);
-  const sceneCount = Math.max(3, Math.round(targetDurationSeconds / SECONDS_PER_SCENE[format]));
+  const secondsPerScene = secondsPerSceneOverride ?? SECONDS_PER_SCENE[format];
+  const sceneCount = Math.max(3, Math.round(targetDurationSeconds / secondsPerScene));
 
   const durationBlock = `DURACION Y EXTENSION (obligatorio, se valida automaticamente):
 - El guion debe durar aproximadamente ${targetDurationSeconds} segundos al narrarse en voz alta.
 - A ~${WORDS_PER_MINUTE} palabras/minuto, eso equivale a ENTRE ${minWords} Y ${maxWords} palabras de narracion en total (suma de todas las escenas). Este es un rango estricto: pasarte de ${maxWords} palabras es tan incorrecto como quedarte corto de ${minWords} — si te pasas, el sistema recorta el guion automaticamente y corta la historia a la mitad, así que cuenta tus palabras mientras escribes.
-- Divide la narracion en unas ${sceneCount} escenas ${
+- Divide la narracion en unas ${sceneCount} escenas de ~${secondsPerScene}s cada una${
     format === "short"
-      ? "(aprox. 4-6s cada una, es decir UNA sola idea o frase por escena — cada escena es un plano distinto, y si el plano no cambia el espectador se va)"
-      : "(aprox. 8-12s cada una)"
+      ? " — cada escena es un plano distinto, y si el plano no cambia el espectador se va"
+      : ""
+  }${
+    secondsPerScene <= 6
+      ? ", es decir UNA sola idea o frase por escena"
+      : ", con espacio para desarrollar la idea dentro de cada una"
   }, cada una con su narrationText.
 - Con ese presupuesto de palabras, cuenta una historia completa pero compacta: ve directo al punto en cada escena, sin relleno ni descripciones largas. Prioriza que quepan planteamiento, desarrollo y cierre dentro del limite antes que desarrollar cada parte a fondo.`;
 

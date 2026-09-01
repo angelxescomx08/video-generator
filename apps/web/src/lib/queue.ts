@@ -35,3 +35,9 @@ export async function enqueueStatsPoll(videoId?: string): Promise<void> {
   const boss = await getBoss();
   await boss.send(QUEUES.POLL_STATS, videoId ? { videoId } : {});
 }
+
+/** Dispara el descubrimiento de dimensiones nuevas. No lleva payload: analiza el canal completo. */
+export async function enqueueDimensionDiscovery(): Promise<void> {
+  const boss = await getBoss();
+  await boss.send(QUEUES.DISCOVER_DIMENSIONS, {});
+}

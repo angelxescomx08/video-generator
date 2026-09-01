@@ -25,6 +25,11 @@ export interface VideoAttributes {
   /** Un gancho que abre con pregunta genera curiosidad; uno que narra contexto la pierde. */
   hookIsQuestion: boolean;
   hasMusic: boolean;
+  /**
+   * Familia de mood de la musica que suena, derivada de las tags que REALMENTE encontraron la pista.
+   * `null` si el video no lleva musica o si es un EDL viejo que no registro con que tags la encontro.
+   */
+  musicMood: string | null;
   captionsEnabled: boolean;
   /**
    * Tipos de transicion usados en el EDL (cut, crossfade, fade_black).
@@ -44,6 +49,35 @@ export interface VideoAttributes {
   hookHasNumber: boolean;
   /** Si el montaje lo decidio la IA o el fallback determinista (null en EDLs viejos, ver edl.ts). */
   edlGeneratedBy: "ai" | "fallback" | null;
+}
+
+/**
+ * Familias de mood musical, en el orden en que se prueban.
+ *
+ * Las tags de los bancos son texto libre en ingles y practicamente infinitas ("epic", "uplifting",
+ * "dark ambient"...): usarlas crudas como grupo daria un grupo de un video por tag y ninguna
+ * comparacion posible. Se agrupan en cuatro familias porque la pregunta util no es "¿esta cancion
+ * concreta funciono?" sino "¿a este canal le va mejor con musica tensa o con musica calmada?".
+ *
+ * El orden importa: una pista etiquetada "epic, dark" cae en tensa antes que en energetica, porque
+ * lo que domina la sensacion es la tension. Lo que no encaja en ninguna queda fuera (null) en vez de
+ * ir a un cajon "otras" que mezclaria cosas sin nada en comun.
+ */
+const MUSIC_MOOD_FAMILIES: ReadonlyArray<{ label: string; keywords: readonly string[] }> = [
+  { label: "tensa/oscura", keywords: ["tense", "dark", "suspense", "dramatic", "mysterious", "horror", "sad"] },
+  { label: "energetica", keywords: ["upbeat", "energetic", "action", "powerful", "rock", "electronic", "funk", "happy"] },
+  { label: "inspiradora", keywords: ["inspirational", "hopeful", "uplifting", "emotional", "motivational", "epic"] },
+  { label: "calmada", keywords: ["calm", "ambient", "relaxing", "soft", "peaceful", "meditation", "chill", "acoustic"] },
+];
+
+/** A que familia pertenece la musica, mirando las tags que efectivamente encontraron la pista. */
+function classifyMusicMood(tags: string[] | undefined): string | null {
+  if (!tags || tags.length === 0) return null;
+  const normalized = tags.map((t) => t.toLowerCase());
+  for (const family of MUSIC_MOOD_FAMILIES) {
+    if (normalized.some((tag) => family.keywords.some((kw) => tag.includes(kw)))) return family.label;
+  }
+  return null;
 }
 
 /** Numeros escritos con letra que aparecen en un gancho en español; los digitos van por regex. */
@@ -79,6 +113,7 @@ export function extractVideoAttributes(video: Video): VideoAttributes {
     // del segundo 3. El signo de apertura es opcional porque el LLM no siempre lo pone.
     hookIsQuestion: hookText !== null && /[?¿]/.test(hookText),
     hasMusic: Boolean(edl?.audio.backgroundMusicPath),
+    musicMood: edl?.audio.backgroundMusicPath ? classifyMusicMood(edl.audio.backgroundMusicTags) : null,
     captionsEnabled: edl?.captions.enabled ?? video.captionsEnabled,
     transitionTypes: unique((edl?.scenes ?? []).map((s) => s.transitionOut.type)),
     effectTypes: effectsUsed,

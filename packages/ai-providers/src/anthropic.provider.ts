@@ -1,7 +1,7 @@
 import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
 import { estimateAnthropicCost } from "./pricing";
 import { buildScriptUserPrompt } from "./script-context";
-import { MUSIC_SUGGESTION_INSTRUCTION, NotImplementedError, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION, type AICallResult, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
+import { buildDimensionClassificationPrompt, buildDimensionProposalPrompt, MUSIC_SUGGESTION_INSTRUCTION, NotImplementedError, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION, type AICallResult, type DimensionClassificationRequest, type DimensionProposalRequest, type ProposedDimension, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
 
 interface AnthropicProviderOptions {
   apiKey: string;
@@ -74,6 +74,22 @@ export class AnthropicProvider implements AIProvider {
       throw new Error(`Anthropic returned an invalid EDL: ${parsed.error.message}`);
     }
     return { result: parsed.data, cost };
+  }
+
+  async proposeDimensions(req: DimensionProposalRequest): Promise<AICallResult<ProposedDimension[]>> {
+    const { json, cost } = await this.messageJson(
+      "Eres un analista de contenido que busca patrones en guiones de video. Propones hipotesis, no conclusiones.",
+      buildDimensionProposalPrompt(req),
+    );
+    return { result: (json as { proposals?: ProposedDimension[] }).proposals ?? [], cost };
+  }
+
+  async classifyDimension(req: DimensionClassificationRequest): Promise<AICallResult<string>> {
+    const { json, cost } = await this.messageJson(
+      "Clasificas guiones. Contestas solo con una de las opciones dadas, copiada literal.",
+      buildDimensionClassificationPrompt(req),
+    );
+    return { result: String((json as { bucket?: string }).bucket ?? ""), cost };
   }
 
   async embed(_req: EmbeddingRequest): Promise<AICallResult<number[]>> {

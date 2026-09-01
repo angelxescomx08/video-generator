@@ -1,0 +1,1 @@
+ALTER TABLE "videos" ADD COLUMN "exploration_plan" jsonb;

@@ -1,6 +1,7 @@
 import { getBoss, QUEUES } from "@video-generator/queue";
 import type { Job } from "pg-boss";
 import { handleBuildEdl } from "./handlers/build-edl.handler";
+import { handleDiscoverDimensions } from "./handlers/discover-dimensions.handler";
 import { handleFetchStockFootage } from "./handlers/fetch-stock-footage.handler";
 import { handleGenerateScript } from "./handlers/generate-script.handler";
 import { handleGenerateTts } from "./handlers/generate-tts.handler";
@@ -28,6 +29,10 @@ async function main() {
   await boss.work(QUEUES.RENDER_VIDEO, perJob(handleRenderVideo));
   await boss.work(QUEUES.PUBLISH_VIDEO, perJob(handlePublishVideo));
   await boss.work(QUEUES.POLL_STATS, perJob(handlePollStats));
+  // No lleva payload: analiza el canal entero, no un video. Se dispara solo a mano desde
+  // /analytics — proponer dimensiones cuesta llamadas al LLM y no gana nada corriendo en automatico
+  // sobre una muestra que casi no cambio desde la vez anterior.
+  await boss.work(QUEUES.DISCOVER_DIMENSIONS, perJob(handleDiscoverDimensions));
 
   // Recurring stats poll across all published videos, every 6 hours.
   await boss.schedule(QUEUES.POLL_STATS, "0 */6 * * *", {});

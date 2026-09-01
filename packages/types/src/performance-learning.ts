@@ -27,10 +27,18 @@ export interface PerformanceLearning {
 
 export interface PerformanceBucket {
   label: string;
-  /** Promedio de la metrica en este grupo, en porcentaje. */
+  /** Promedio PONDERADO por recencia de la metrica en este grupo, en porcentaje. */
   mean: number;
   /** Videos que caen en este grupo. */
   count: number;
+  /**
+   * Tamano de muestra efectivo: `(Σw)²/Σw²` sobre los pesos de recencia del grupo.
+   *
+   * Es el numero honesto cuando los videos no pesan igual. Un grupo de 5 videos donde 4 son viejos y
+   * uno reciente no vale 5: el promedio lo decide casi solo el reciente, y `effectiveCount` lo dice
+   * (~1.4 en vez de 5). Es sobre esto que se decide si un grupo es comparable, no sobre `count`.
+   */
+  effectiveCount: number;
 }
 
 /**
