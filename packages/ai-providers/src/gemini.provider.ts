@@ -3,7 +3,7 @@ import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from
 import { estimateGeminiCost } from "./pricing";
 import { geminiCharBudget, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
-import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
+import { MUSIC_SUGGESTION_INSTRUCTION, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
   AICallResult,
   AIProvider,
@@ -63,6 +63,74 @@ const SCRIPT_RESPONSE_SCHEMA = {
     },
   },
   required: ["title", "description", "script", "scenes", "tags", "extractedFacts"],
+} as const;
+
+/**
+ * responseSchema del EDL. Sin esto, `generateEDL` fallaba el 100% de las veces: `responseMimeType`
+ * por si solo hace que Gemini devuelva JSON, pero no JSON con ESTA forma, asi que
+ * `editDecisionListSchema.safeParse` rechazaba la respuesta y cada video terminaba en el fallback
+ * determinista (mismo efecto en todas las escenas, sin tags de musica) pagando igual la llamada.
+ *
+ * Se le piden solo los campos que son decision del modelo. Todo lo demas —tiempos, clips, rutas,
+ * estilo de subtitulos— lo sobreescribe el worker despues, y tiene default en el schema; pedirlo
+ * aqui solo agrandaria la superficie donde la respuesta puede fallar.
+ *
+ * Los efectos y transiciones van como objeto plano con todos los parametros opcionales en vez de
+ * `anyOf`: Gemini no maneja bien las uniones discriminadas, y zod narra por `type` y descarta los
+ * campos que sobren (un `intensity` colado en un ken_burns se ignora, no rompe).
+ */
+const EDL_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    version: { type: "INTEGER" },
+    format: { type: "STRING", enum: ["long", "short"] },
+    totalDurationSeconds: { type: "NUMBER" },
+    audio: {
+      type: "OBJECT",
+      properties: {
+        musicSuggestionTags: { type: "ARRAY", items: { type: "STRING" } },
+        youtubeAudioLibrary: {
+          type: "OBJECT",
+          properties: {
+            genres: { type: "ARRAY", items: { type: "STRING" } },
+            moods: { type: "ARRAY", items: { type: "STRING" } },
+          },
+        },
+      },
+      required: ["musicSuggestionTags"],
+    },
+    scenes: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          index: { type: "INTEGER" },
+          durationSeconds: { type: "NUMBER" },
+          effect: {
+            type: "OBJECT",
+            properties: {
+              type: { type: "STRING", enum: ["none", "ken_burns", "zoom_punch"] },
+              direction: { type: "STRING", enum: ["in", "out"] },
+              panX: { type: "STRING", enum: ["left", "right", "center"] },
+              panY: { type: "STRING", enum: ["up", "down", "center"] },
+              intensity: { type: "STRING", enum: ["low", "medium", "high"] },
+            },
+            required: ["type"],
+          },
+          transitionOut: {
+            type: "OBJECT",
+            properties: {
+              type: { type: "STRING", enum: ["cut", "crossfade", "fade_black"] },
+              durationSeconds: { type: "NUMBER" },
+            },
+            required: ["type"],
+          },
+        },
+        required: ["index", "durationSeconds", "effect", "transitionOut"],
+      },
+    },
+  },
+  required: ["version", "format", "totalDurationSeconds", "audio", "scenes"],
 } as const;
 
 /** Quita fences markdown (```json ... ```) que a veces envuelven la respuesta antes de parsear. */
@@ -153,8 +221,12 @@ export class GeminiProvider implements AIProvider {
   }
 
   async generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>> {
-    const userPrompt = `Genera una Edit Decision List JSON para estas escenas: ${JSON.stringify(req.scenes)}, formato ${req.format}, clips: ${JSON.stringify(req.availableClips)}.\n\n${MUSIC_SUGGESTION_INSTRUCTION}`;
-    const { json, cost } = await this.generateJson("Eres un editor de video experto.", userPrompt);
+    const userPrompt = `Genera una Edit Decision List JSON para estas escenas: ${JSON.stringify(req.scenes)}, formato ${req.format}, clips: ${JSON.stringify(req.availableClips)}.\n\nDevuelve una entrada de scenes por cada escena recibida, con su mismo index.\n\n${SCENE_EFFECT_INSTRUCTION}\n\n${MUSIC_SUGGESTION_INSTRUCTION}`;
+    const { json, cost } = await this.generateJson(
+      "Eres un editor de video experto.",
+      userPrompt,
+      EDL_RESPONSE_SCHEMA,
+    );
     const parsed = editDecisionListSchema.safeParse(json);
     if (!parsed.success) {
       throw new Error(`Gemini returned an invalid EDL: ${parsed.error.message}`);

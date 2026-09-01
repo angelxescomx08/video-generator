@@ -7,8 +7,8 @@ import {
   getChannelSeries,
   getCostTotals,
   getLearningReadiness,
+  getLearningsReport,
   getLinkStatusCounts,
-  getPerformanceLearnings,
   getPublicationTimeline,
   getRankedByRetention,
   getRetentionDistribution,
@@ -26,7 +26,7 @@ import {
   type TimeRange,
   type WeekdayRow,
 } from "@video-generator/analytics";
-import type { PerformanceLearning } from "@video-generator/types";
+import type { DimensionCoverage, PerformanceLearning } from "@video-generator/types";
 import { db, publishedVideos, videos } from "@/lib/db";
 import { Badge } from "@/components/ui/badge";
 import { SyncAllStatsButton } from "@/components/sync-all-stats-button";
@@ -59,7 +59,7 @@ export default async function AnalyticsPage({
     overview,
     series,
     timeline,
-    learnings,
+    learningsReport,
     readiness,
     costTotals,
     distribution,
@@ -74,7 +74,7 @@ export default async function AnalyticsPage({
     getChannelOverview(),
     getChannelSeries(time),
     getPublicationTimeline(),
-    getPerformanceLearnings(),
+    getLearningsReport(),
     getLearningReadiness(),
     getCostTotals(),
     getRetentionDistribution(),
@@ -136,7 +136,11 @@ export default async function AnalyticsPage({
             <WeekdayChart rows={weekday} />
           </section>
 
-          <LearningsSection learnings={learnings} readiness={readiness} />
+          <LearningsSection
+            learnings={learningsReport.learnings}
+            coverage={learningsReport.coverage}
+            readiness={readiness}
+          />
 
           <section className="space-y-4">
             <SectionHeading
@@ -585,11 +589,74 @@ function RankingChart({ title, rows, direction }: { title: string; rows: RankedV
  * Es la misma funcion que usa el worker al escribir el guion, no una copia: lo que se ve aqui es
  * literalmente lo que la IA esta leyendo.
  */
+/**
+ * Que se le dice al usuario de cada dimension que NO produjo leccion.
+ *
+ * La distincion que importa es "esto se arregla publicando" contra "esto no se arregla solo": una
+ * dimension sin variacion (todos los videos iguales en ese atributo) puede esperar mil videos y
+ * nunca aprender nada, porque el grupo contrario no existe. Decir "todavia no hay datos" en ese caso
+ * es mandar al usuario a esperar algo que no va a pasar.
+ */
+const COVERAGE_COPY: Record<Exclude<DimensionCoverage["status"], "aprendiendo">, string> = {
+  sin_variacion: "No puede aprender: todos tus videos son iguales en esto, no hay grupo con que comparar.",
+  muestra_insuficiente: "Faltan videos: hay grupos distintos, pero alguno no llega a 3 videos.",
+  sin_diferencia: "Sin diferencia clara: los grupos rinden casi igual, no hay leccion que sacar.",
+  sin_datos: "Ningun video tiene este dato medido todavia.",
+};
+
+/** El diagnostico de las dimensiones que no estan produciendo leccion, y por que. */
+function CoverageSection({ coverage }: { coverage: DimensionCoverage[] }) {
+  const pending = coverage.filter((c) => c.status !== "aprendiendo");
+  if (pending.length === 0) return null;
+
+  return (
+    <details className="rounded-md border border-border bg-muted/30 p-4">
+      <summary className="cursor-pointer text-sm font-medium">
+        Lo que la IA todavia no puede aprender ({pending.length})
+      </summary>
+      <p className="mt-2 text-xs text-muted-foreground">
+        El motor compara {coverage.length} dimensiones. Las que no aparecen arriba no siempre estan
+        &quot;esperando datos&quot;: si todos tus videos comparten el mismo valor, esa dimension no puede
+        aprender nada por mas que publiques, y la unica forma de desbloquearla es publicar a proposito
+        algun video del otro grupo.
+      </p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-muted-foreground">
+            <tr className="border-b border-border">
+              <th className="py-1 pr-3 text-left font-medium">Dimension</th>
+              <th className="py-1 pr-3 text-left font-medium">Por que no aprende</th>
+              <th className="py-1 text-left font-medium">Grupos observados</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pending.map((c) => (
+              <tr key={c.dimension} className="border-b border-border/50 last:border-0">
+                <td className="py-1.5 pr-3 align-top font-medium">{c.dimension}</td>
+                <td className="py-1.5 pr-3 align-top text-muted-foreground">
+                  {COVERAGE_COPY[c.status as Exclude<DimensionCoverage["status"], "aprendiendo">]}
+                </td>
+                <td className="py-1.5 align-top text-muted-foreground">
+                  {c.groups.length === 0
+                    ? "—"
+                    : c.groups.map((g) => `${g.label} (${g.count})`).join(", ")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
 function LearningsSection({
   learnings,
+  coverage,
   readiness,
 }: {
   learnings: PerformanceLearning[];
+  coverage: DimensionCoverage[];
   readiness: Awaited<ReturnType<typeof getLearningReadiness>>;
 }) {
   return (
@@ -641,6 +708,8 @@ function LearningsSection({
           ))}
         </div>
       )}
+
+      <CoverageSection coverage={coverage} />
     </section>
   );
 }

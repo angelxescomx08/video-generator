@@ -126,6 +126,39 @@ nombres conocidos) ni los handlers del worker (llaman siempre a través del regi
   `-v NODE_ENV=production` explícito: el `.env` trae `NODE_ENV=development` para `dev`, y como
   `dotenv-cli` no sobreescribe variables ya puestas en el entorno, sin ese `-v` el build de Next
   corre en modo dev y rompe el prerender (`<Html> should not be imported outside of pages/_document`).
+- **Del EDL que devuelve el LLM, lo único que sobrevive al render son los `effect` de cada escena.**
+  El worker recalcula tiempos (`reconcileSceneTiming` sobre la duración medida del TTS), reasigna
+  clips, y pisa `captions.enabled`/`style`; y `transitionOut` ni siquiera se aplica (el render encadena
+  con `concat`). Por eso los campos que el worker sobreescribe llevan `.default()` en
+  `packages/types/src/edl.ts`: pedírselos al modelo solo agrandaba la superficie donde el EDL entero
+  podía fallar la validación. Al agregar un campo nuevo al EDL, pregúntate primero si el worker lo va
+  a pisar — si sí, va con default y fuera del `responseSchema` del provider.
+- **Nunca analices `transitionTypes` como causa de rendimiento.** Se guarda en el EDL pero no se
+  renderiza (ver el punto anterior), así que cruzarlo contra la retención mide una decisión que nunca
+  llegó a pantalla. Está anotado en `video-attributes.ts` para que no se agregue como dimensión.
+- `generateEDL` de Gemini **requiere `responseSchema`**, igual que `generateScript`. Sin él,
+  `responseMimeType: "application/json"` hace que devuelva JSON, pero no JSON con la forma del EDL, y
+  `editDecisionListSchema.safeParse` lo rechaza: el video cae al fallback determinista pagando igual
+  la llamada. Pasó en los primeros 19 videos del canal y el único rastro era un `logger.warn`.
+- `edl.generatedBy` (`"ai" | "fallback"`) marca quién decidió el montaje. Es el canario de lo
+  anterior: si empieza a salir `"fallback"` en la UI o en los logs, la generación de EDL está rota,
+  no es un detalle cosmético — significa que el video se montó sin decisiones editoriales.
+- **Una escena es un plano**, así que `SECONDS_PER_SCENE` en `script-prompt.builder.ts` decide cada
+  cuánto cambia la imagen — es la palanca de retención más barata del pipeline y por eso está
+  separada por formato (`short: 5`, `long: 10`). Los cortes rápidos son una recomendación de formato
+  vertical; aplicarle ese ritmo a un video largo de 10 min daría 120 escenas y 120 descargas de stock
+  sin ganar nada. Subir los cortes NO cambia el presupuesto de palabras: reparte las mismas palabras
+  entre más escenas, así que cada escena queda en una sola frase.
+- El fetch de stock **deduplica clips dentro de un mismo video** (los ya usados se prueban al final,
+  no se descartan). Sin eso, dos escenas con keywords parecidas reciben el mismo clip del banco y el
+  plano no cambia justo donde debería — y el problema empeora cuantas más escenas hay. Si en los logs
+  `uniqueClips < scenes`, es que varias escenas están pidiendo lo mismo en `visualKeywords`.
+- **El motor de aprendizaje solo puede aprender de atributos que VARÍAN entre videos.** Una dimensión
+  donde todos los videos caen en el mismo grupo no está "esperando muestra": no puede aprender nunca,
+  porque no existe el grupo contra el cual comparar. `analyzeCoverage` en `learnings.ts` distingue
+  esos casos (`sin_variacion` vs `muestra_insuficiente`) y la UI los muestra en
+  "Lo que la IA todavía no puede aprender". Antes de agregar una dimensión nueva, revisa en la base
+  si el atributo de verdad varía — si el pipeline lo genera siempre igual, la dimensión nace muerta.
 - `pnpm start` (raíz) requiere haber corrido `pnpm build` antes — solo levanta lo ya compilado,
   no compila nada. Usa el mismo puerto 3001 que `dev` para `apps/web`; si tienes otro proceso local
   en ese puerto (de otro proyecto), falla con `EADDRINUSE`.

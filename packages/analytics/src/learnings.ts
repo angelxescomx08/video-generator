@@ -1,5 +1,10 @@
 import { db, publishedVideos, videoStats, videos } from "@video-generator/db";
-import type { PerformanceBucket, PerformanceLearning } from "@video-generator/types";
+import type {
+  DimensionCoverage,
+  DimensionStatus,
+  PerformanceBucket,
+  PerformanceLearning,
+} from "@video-generator/types";
 import { MIN_DAYS_FOR_LEARNING, MIN_VIEWS_FOR_LEARNING } from "@video-generator/types";
 import { desc, eq, sql } from "drizzle-orm";
 import { extractVideoAttributes, type VideoAttributes } from "./video-attributes";
@@ -108,6 +113,51 @@ const DIMENSIONS: readonly Dimension[] = [
     outcomeLabel: "porcentaje del video visto",
     bucket: (a) => (a.hasMusic ? "con musica de fondo" : "sin musica de fondo"),
   },
+  // Las tres dimensiones visuales que siguen salen de la guia de retencion para formato corto: el
+  // espectador se despega cuando la imagen deja de cambiar, asi que lo que se mide es cada cuanto
+  // cambia algo en pantalla y con que fuerza abre el video. Son ademas las unicas decisiones de
+  // montaje que sobreviven al render (los tiempos y clips los reescribe el worker, y las
+  // transiciones todavia no se aplican).
+  {
+    label: "variedad visual",
+    outcome: "avgViewPercentage",
+    outcomeLabel: "porcentaje del video visto",
+    bucket: (a) => {
+      if (a.effectVariety === 0) return null;
+      return a.effectVariety === 1 ? "un solo efecto en todo el video" : "2 o mas efectos distintos";
+    },
+  },
+  {
+    // El corte es el pattern interrupt mas barato que existe: no cuesta un clip nuevo, solo decidir
+    // cambiar de plano antes. Los cortes de referencia en Shorts caen entre 3 y 5s por plano.
+    label: "ritmo de corte",
+    outcome: "avgViewPercentage",
+    outcomeLabel: "porcentaje del video visto",
+    bucket: (a) => {
+      if (a.avgSceneSeconds === null) return null;
+      if (a.avgSceneSeconds <= 4) return "cortes rapidos (<=4s por escena)";
+      if (a.avgSceneSeconds <= 7) return "cortes medios (4-7s por escena)";
+      return "cortes lentos (>7s por escena)";
+    },
+  },
+  {
+    label: "golpe visual en el gancho",
+    outcome: "retentionAtStart",
+    outcomeLabel: "retencion en los primeros segundos",
+    bucket: (a) => {
+      if (a.hookEffect === null) return null;
+      return a.hookEffect === "zoom_punch" ? "gancho con golpe visual" : "gancho sin golpe visual";
+    },
+  },
+  {
+    // Un dato concreto en el gancho es una promesa de valor inmediata; el "slow build" que abre
+    // dando contexto es el error mas repetido en formato corto.
+    label: "dato concreto en el gancho",
+    outcome: "retentionAtStart",
+    outcomeLabel: "retencion en los primeros segundos",
+    bucket: (a) =>
+      a.hookText === null ? null : a.hookHasNumber ? "gancho con numero/dato" : "gancho sin numero/dato",
+  },
   {
     label: "subtitulos",
     outcome: "avgViewPercentage",
@@ -123,6 +173,23 @@ const DIMENSIONS: readonly Dimension[] = [
  */
 export async function getPerformanceLearnings(): Promise<PerformanceLearning[]> {
   return analyzeLearnings(await loadLearningSamples());
+}
+
+export interface LearningsReport {
+  learnings: PerformanceLearning[];
+  coverage: DimensionCoverage[];
+}
+
+/**
+ * Lecciones + diagnostico de cada dimension, cargando las muestras UNA sola vez.
+ *
+ * La pantalla necesita las dos cosas juntas, y son dos vistas de la misma pasada: pedirlas por
+ * separado significaria repetir el `DISTINCT ON` sobre `video_stats` (que crece sin techo) para
+ * recorrer en JS exactamente las mismas filas.
+ */
+export async function getLearningsReport(): Promise<LearningsReport> {
+  const samples = await loadLearningSamples();
+  return { learnings: analyzeLearnings(samples), coverage: analyzeCoverage(samples) };
 }
 
 /**
@@ -231,10 +298,9 @@ export async function getLearningReadiness(): Promise<LearningReadiness> {
   };
 }
 
-/** Compara los grupos de una dimension y emite una leccion si la brecha es real y no anecdotica. */
-function analyzeDimension(dimension: Dimension, samples: LearningSample[]): PerformanceLearning | null {
+/** Reparte las muestras en los grupos de una dimension, sin filtrar por tamano todavia. */
+function bucketize(dimension: Dimension, samples: LearningSample[]): Map<string, number[]> {
   const buckets = new Map<string, number[]>();
-
   for (const sample of samples) {
     const outcome = sample.outcomes[dimension.outcome];
     if (outcome === undefined) continue;
@@ -244,11 +310,48 @@ function analyzeDimension(dimension: Dimension, samples: LearningSample[]): Perf
     list.push(outcome);
     buckets.set(key, list);
   }
+  return buckets;
+}
 
-  const usable: PerformanceBucket[] = [...buckets.entries()]
+/** Los grupos que llegan al minimo de videos, ya promediados y ordenados de mejor a peor. */
+function usableBuckets(buckets: Map<string, number[]>): PerformanceBucket[] {
+  return [...buckets.entries()]
     .filter(([, values]) => values.length >= MIN_SAMPLES_PER_BUCKET)
     .map(([label, values]) => ({ label, mean: mean(values), count: values.length }))
     .sort((a, b) => b.mean - a.mean);
+}
+
+/**
+ * Por que cada dimension esta o no produciendo una leccion.
+ *
+ * Se calcula sobre las mismas muestras que `analyzeLearnings`, no con otra consulta: es la misma
+ * pasada, mirada desde el otro lado. Sirve para responder la pregunta que el tablero no contestaba
+ * —"¿esto va a aprender algo alguna vez?"— y en particular para separar "falta muestra" (se
+ * arregla publicando) de "sin variacion" (no se arregla nunca, porque todos los videos son iguales
+ * en ese atributo y no existe el grupo contrario).
+ */
+export function analyzeCoverage(samples: LearningSample[]): DimensionCoverage[] {
+  return DIMENSIONS.map((dimension): DimensionCoverage => {
+    const buckets = bucketize(dimension, samples);
+    const groups = [...buckets.entries()]
+      .map(([label, values]) => ({ label, count: values.length }))
+      .sort((a, b) => b.count - a.count);
+    const usable = usableBuckets(buckets);
+
+    let status: DimensionStatus;
+    if (groups.length === 0) status = "sin_datos";
+    else if (groups.length === 1) status = "sin_variacion";
+    else if (usable.length < 2) status = "muestra_insuficiente";
+    else if (usable[0]!.mean - usable[usable.length - 1]!.mean < MIN_DELTA_POINTS) status = "sin_diferencia";
+    else status = "aprendiendo";
+
+    return { dimension: dimension.label, status, groups };
+  });
+}
+
+/** Compara los grupos de una dimension y emite una leccion si la brecha es real y no anecdotica. */
+function analyzeDimension(dimension: Dimension, samples: LearningSample[]): PerformanceLearning | null {
+  const usable = usableBuckets(bucketize(dimension, samples));
 
   // Hacen falta al menos dos grupos comparables: con uno solo no hay contra que medir.
   if (usable.length < 2) return null;

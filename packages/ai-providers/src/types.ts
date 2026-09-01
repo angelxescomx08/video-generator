@@ -117,6 +117,28 @@ export const MUSIC_SUGGESTION_INSTRUCTION =
   `genres: ${YOUTUBE_AUDIO_GENRES.map((g) => `"${g}"`).join(", ")}\n` +
   `moods: ${YOUTUBE_AUDIO_MOODS.map((m) => `"${m}"`).join(", ")}`;
 
+/**
+ * Como elegir el efecto de cada escena. Es la unica decision del EDL que llega intacta al video
+ * renderizado: el worker recalcula tiempos, reasigna clips y pisa el estilo de subtitulos, y las
+ * transiciones todavia no se aplican (el render encadena con `concat`, ver edl-to-ffmpeg.ts). Si el
+ * modelo pone el mismo efecto en todas las escenas, el video queda visualmente plano de punta a
+ * punta, que es la forma mas rapida de perder retencion en formato corto.
+ *
+ * Las reglas salen de la guia de retencion para Shorts: el gancho necesita un golpe visual en los
+ * primeros segundos, y despues hace falta un cambio de energia cada 10-15s para reiniciar la
+ * atencion antes de que el espectador se despegue.
+ */
+export const SCENE_EFFECT_INSTRUCTION =
+  "Elige el effect de cada escena con intencion editorial, NO el mismo para todas:\n" +
+  '- Escena del gancho (la primera): {"type": "zoom_punch", "intensity": "high"} — necesita un golpe' +
+  " visual que frene el scroll.\n" +
+  '- Momento de giro/revelacion o clímax: {"type": "zoom_punch", "intensity": "medium" | "high"}.\n' +
+  '- Escenas narrativas: {"type": "ken_burns", "direction": "in" | "out", "panX": ..., "panY": ...},' +
+  " alternando direccion para que no haya dos escenas seguidas con el mismo movimiento.\n" +
+  '- {"type": "none"} solo si el clip ya tiene movimiento propio fuerte.\n' +
+  "Regla dura: usa AL MENOS 2 tipos de efecto distintos en el video. Un video entero con el mismo" +
+  " efecto se siente estatico y pierde audiencia.";
+
 export interface AICallResult<T> {
   result: T;
   cost: ProviderCost;

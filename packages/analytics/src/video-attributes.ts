@@ -26,11 +26,29 @@ export interface VideoAttributes {
   hookIsQuestion: boolean;
   hasMusic: boolean;
   captionsEnabled: boolean;
-  /** Tipos de transicion usados en el EDL (cut, crossfade, fade_black). */
+  /**
+   * Tipos de transicion usados en el EDL (cut, crossfade, fade_black).
+   *
+   * OJO: hoy esto NO se puede usar para aprender. El render encadena escenas con `concat` y todavia
+   * no aplica `transitionOut` (ver edl-to-ffmpeg.ts), asi que este campo guarda una decision que
+   * nunca llega a la pantalla. Cruzarlo contra la retencion mediria ruido, no una causa.
+   */
   transitionTypes: string[];
-  /** Tipos de efecto usados en el EDL (none, ken_burns, zoom_punch). */
+  /** Tipos de efecto usados en el EDL (none, ken_burns, zoom_punch). Estos si se renderizan. */
   effectTypes: string[];
+  /** Cuantos efectos DISTINTOS tiene el video. 1 = visualmente plano de principio a fin. */
+  effectVariety: number;
+  /** Efecto de la primera escena: el golpe visual (o su ausencia) con el que abre el video. */
+  hookEffect: string | null;
+  /** Si el gancho trae un numero/dato concreto, en digitos o en palabra. */
+  hookHasNumber: boolean;
+  /** Si el montaje lo decidio la IA o el fallback determinista (null en EDLs viejos, ver edl.ts). */
+  edlGeneratedBy: "ai" | "fallback" | null;
 }
+
+/** Numeros escritos con letra que aparecen en un gancho en español; los digitos van por regex. */
+const SPANISH_NUMBER_WORDS =
+  /\b(un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|veinte|treinta|cuarenta|cincuenta|cien|ciento|mil|millon|millones)\b/i;
 
 /** Cuantas palabras del inicio se consideran "el gancho" (~3 segundos a 150 ppm). */
 const HOOK_WORD_COUNT = 12;
@@ -46,6 +64,7 @@ export function extractVideoAttributes(video: Video): VideoAttributes {
 
   const durationSeconds = video.durationSeconds ?? edl?.totalDurationSeconds ?? null;
   const sceneCount = edl?.scenes.length ?? scenes.length;
+  const effectsUsed = unique((edl?.scenes ?? []).map((s) => s.effect.type));
 
   return {
     format: video.format,
@@ -62,7 +81,11 @@ export function extractVideoAttributes(video: Video): VideoAttributes {
     hasMusic: Boolean(edl?.audio.backgroundMusicPath),
     captionsEnabled: edl?.captions.enabled ?? video.captionsEnabled,
     transitionTypes: unique((edl?.scenes ?? []).map((s) => s.transitionOut.type)),
-    effectTypes: unique((edl?.scenes ?? []).map((s) => s.effect.type)),
+    effectTypes: effectsUsed,
+    effectVariety: effectsUsed.length,
+    hookEffect: edl?.scenes[0]?.effect.type ?? null,
+    hookHasNumber: hookText !== null && (/\d/.test(hookText) || SPANISH_NUMBER_WORDS.test(hookText)),
+    edlGeneratedBy: edl?.generatedBy ?? null,
   };
 }
 
@@ -78,6 +101,7 @@ export function describeVideoAttributes(attrs: VideoAttributes): string {
     `escenas=${attrs.sceneCount}`,
     attrs.wordsPerSecond ? `ritmo=${attrs.wordsPerSecond.toFixed(2)} palabras/s` : null,
     `gancho=${attrs.hookIsQuestion ? "pregunta" : "afirmacion"}`,
+    `efectos=${attrs.effectTypes.join("+") || "ninguno"}`,
     attrs.hasMusic ? "con musica" : "sin musica",
     attrs.captionsEnabled ? "con subtitulos" : "sin subtitulos",
   ].filter(Boolean);

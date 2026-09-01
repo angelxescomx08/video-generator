@@ -186,10 +186,13 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
         format: video.format,
         themeSlug: "",
       });
-      edl = result;
+      edl = { ...result, generatedBy: "ai" };
       edlCost = { ...cost, stage: "edl" };
     } catch (err) {
-      logger.warn(`AI EDL generation failed for video ${videoId}, using deterministic fallback`, {
+      // Se sube a `error` a proposito: caer al fallback no es un detalle menor, significa que el
+      // video se monta sin ninguna decision editorial de la IA (mismo efecto en todas las escenas y
+      // sin sugerencia de musica). Como warn paso desapercibido durante todo un canal.
+      logger.error(`AI EDL generation failed for video ${videoId}, using deterministic fallback`, {
         error: (err as Error).message,
       });
       edl = buildFallbackEdl({
@@ -208,6 +211,7 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
             };
           }),
       });
+      edl.generatedBy = "fallback";
     }
 
     // Fill in file paths the LLM doesn't know about (it only reasoned about scene indices/keywords).
@@ -270,7 +274,11 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
 
     await db.update(videos).set({ edl, updatedAt: new Date() }).where(eq(videos.id, videoId));
 
-    logger.info(`EDL built for video ${videoId}`, { scenes: edl.scenes.length });
+    logger.info(`EDL built for video ${videoId}`, {
+      scenes: edl.scenes.length,
+      generatedBy: edl.generatedBy,
+      effects: [...new Set(edl.scenes.map((s) => s.effect.type))],
+    });
     return { ...edl, costs: edlCost ? [edlCost] : [] };
   });
 

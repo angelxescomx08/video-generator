@@ -1,7 +1,7 @@
 import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
 import { estimateAnthropicCost } from "./pricing";
 import { buildScriptUserPrompt } from "./script-context";
-import { MUSIC_SUGGESTION_INSTRUCTION, NotImplementedError, VISUAL_KEYWORDS_INSTRUCTION, type AICallResult, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
+import { MUSIC_SUGGESTION_INSTRUCTION, NotImplementedError, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION, type AICallResult, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
 
 interface AnthropicProviderOptions {
   apiKey: string;
@@ -67,7 +67,7 @@ export class AnthropicProvider implements AIProvider {
   }
 
   async generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>> {
-    const userPrompt = `Genera una Edit Decision List JSON para estas escenas: ${JSON.stringify(req.scenes)}, formato ${req.format}, clips: ${JSON.stringify(req.availableClips)}.\n\n${MUSIC_SUGGESTION_INSTRUCTION}`;
+    const userPrompt = `Genera una Edit Decision List JSON para estas escenas: ${JSON.stringify(req.scenes)}, formato ${req.format}, clips: ${JSON.stringify(req.availableClips)}.\n\n${SCENE_EFFECT_INSTRUCTION}\n\n${MUSIC_SUGGESTION_INSTRUCTION}`;
     const { json, cost } = await this.messageJson("Eres un editor de video experto.", userPrompt);
     const parsed = editDecisionListSchema.safeParse(json);
     if (!parsed.success) {

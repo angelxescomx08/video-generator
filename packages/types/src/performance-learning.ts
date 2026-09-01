@@ -32,3 +32,31 @@ export interface PerformanceBucket {
   /** Videos que caen en este grupo. */
   count: number;
 }
+
+/**
+ * Por que una dimension no esta produciendo una leccion.
+ *
+ * Existe porque "no hay leccion todavia" tapaba dos situaciones opuestas: una que se resuelve
+ * publicando mas videos, y otra que no se resuelve nunca por si sola. Si TODOS los videos llevan
+ * subtitulos, la dimension "subtitulos" no esta esperando muestra — es imposible que aprenda algo,
+ * porque no existe el grupo contra el cual comparar. Sin distinguirlas, el usuario espera un dato
+ * que no va a llegar.
+ */
+export type DimensionStatus =
+  /** Produjo una leccion; ya se le esta pasando al prompt. */
+  | "aprendiendo"
+  /** Todos los videos cayeron en el mismo grupo: no hay contra que comparar. */
+  | "sin_variacion"
+  /** Hay grupos distintos, pero alguno no llega al minimo de videos para ser comparable. */
+  | "muestra_insuficiente"
+  /** Grupos comparables, pero la diferencia entre ellos es demasiado chica para ser una leccion. */
+  | "sin_diferencia"
+  /** Ningun video tiene el dato que esta dimension necesita. */
+  | "sin_datos";
+
+export interface DimensionCoverage {
+  dimension: string;
+  status: DimensionStatus;
+  /** Grupos observados con su tamano, incluidos los que no llegan al minimo. */
+  groups: { label: string; count: number }[];
+}

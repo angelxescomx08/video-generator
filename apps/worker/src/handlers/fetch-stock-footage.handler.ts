@@ -26,10 +26,13 @@ interface ClipCandidate {
 }
 
 /** Cuantos candidatos juntar por escena antes de empezar a descargar. >1 permite que si la descarga
- * de uno falla (404, red, rate limit) se intente con otro sin tumbar la generacion. */
-const CANDIDATES_PER_SCENE = 3;
+ * de uno falla (404, red, rate limit) se intente con otro sin tumbar la generacion. Se guardan mas de
+ * los que hacen falta para eso porque tambien son el material con el que la deduplicacion evita
+ * repetir plano: sin alternativas, un clip ya usado se repite igual. No cuesta llamadas extra — la
+ * busqueda ya pide 5 resultados y antes se tiraban. */
+const CANDIDATES_PER_SCENE = 5;
 /** Maximo de clips que se toman de un mismo proveedor, para que los candidatos abarquen varios. */
-const MAX_PER_PROVIDER = 2;
+const MAX_PER_PROVIDER = 3;
 
 /**
  * Rota el orden de los proveedores segun la escena.
@@ -91,17 +94,37 @@ async function findSceneCandidates(
   return [];
 }
 
-/** Descarga el primer candidato que funcione; si uno falla, sigue con el siguiente proveedor/clip. */
+/** Identidad estable de un clip: el mismo id puede existir en dos bancos distintos. */
+function clipKey(clip: StockClipRef): string {
+  return `${clip.provider}:${clip.id}`;
+}
+
+/**
+ * Descarga el primer candidato que funcione; si uno falla, sigue con el siguiente proveedor/clip.
+ *
+ * Los clips ya usados en este video se prueban al final, no se descartan. Dos escenas con keywords
+ * parecidas ("desert", "desert sand") le piden lo mismo al banco y reciben el mismo clip arriba del
+ * ranking, asi que el video repetia plano justo donde deberia cambiar — y el problema crece con el
+ * numero de escenas. Ponerlos al final basta: si hay alternativa se usa, y si no la hay se repite el
+ * clip antes que tumbar la generacion por una escena.
+ */
 async function downloadFirstWorkingCandidate(
   candidates: ClipCandidate[],
   scene: ScriptScene,
   workspace: string,
+  usedClipKeys: Set<string>,
 ): Promise<SceneClip | null> {
-  for (const candidate of candidates) {
+  const ordered = [
+    ...candidates.filter((c) => !usedClipKeys.has(clipKey(c.clip))),
+    ...candidates.filter((c) => usedClipKeys.has(clipKey(c.clip))),
+  ];
+
+  for (const candidate of ordered) {
     const ext = candidate.clip.mediaType === "video" ? "mp4" : "jpg";
     const localPath = path.join(workspace, `scene-${scene.index}-clip.${ext}`);
     try {
       await candidate.provider.download(candidate.clip, localPath);
+      usedClipKeys.add(clipKey(candidate.clip));
       return { sceneIndex: scene.index, clip: candidate.clip, localPath };
     } catch (err) {
       logger.warn(
@@ -130,6 +153,7 @@ export async function handleFetchStockFootage(payload: VideoJobPayload): Promise
     const workspace = await getJobWorkspace(videoId);
     const sceneClips: SceneClip[] = [];
     const clipCosts: ProviderCost[] = [];
+    const usedClipKeys = new Set<string>();
 
     for (const scene of scenes) {
       const candidates = await findSceneCandidates(providers, scene, orientation);
@@ -139,7 +163,7 @@ export async function handleFetchStockFootage(payload: VideoJobPayload): Promise
         );
       }
 
-      const downloaded = await downloadFirstWorkingCandidate(candidates, scene, workspace);
+      const downloaded = await downloadFirstWorkingCandidate(candidates, scene, workspace, usedClipKeys);
       if (!downloaded) {
         throw new Error(
           `Ningun candidato se pudo descargar para la escena ${scene.index} (${candidates.length} intentos en ${new Set(candidates.map((c) => c.provider.name)).size} proveedores)`,
@@ -186,7 +210,13 @@ export async function handleFetchStockFootage(payload: VideoJobPayload): Promise
       );
     }
 
-    logger.info(`Stock footage fetched for video ${videoId}`, { scenes: sceneClips.length, clipsByProvider });
+    // `uniqueClips < scenes` significa que hubo que repetir plano por falta de alternativas: es la
+    // senal de que las visualKeywords de varias escenas estan pidiendo lo mismo.
+    logger.info(`Stock footage fetched for video ${videoId}`, {
+      scenes: sceneClips.length,
+      uniqueClips: usedClipKeys.size,
+      clipsByProvider,
+    });
     return { sceneClips, costs: [stockCost] };
   });
 

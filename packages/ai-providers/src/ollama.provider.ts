@@ -2,7 +2,7 @@ import { editDecisionListSchema, type EditDecisionList } from "@video-generator/
 import { ollamaCost } from "./pricing";
 import { EMBEDDING_CHAR_BUDGETS, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
-import { MUSIC_SUGGESTION_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
+import { MUSIC_SUGGESTION_INSTRUCTION, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
   AICallResult,
   AIProvider,
@@ -50,6 +50,8 @@ Responde UNICAMENTE con JSON valido que sea una Edit Decision List con esta form
   }]
 }
 Deja "sourcePath" vacio, se rellena despues. No inventes clips fuera de los indices de escena recibidos.
+
+${SCENE_EFFECT_INSTRUCTION}
 
 ${MUSIC_SUGGESTION_INSTRUCTION}`;
 

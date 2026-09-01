@@ -68,14 +68,35 @@ export function computeWordBudget(targetDurationSeconds: number): { targetWords:
  * remarcamos que pasarse del maximo es tan incorrecto como quedarse corto (hay un recorte automatico
  * despues si no se respeta, que corta la historia de forma abrupta).
  */
+/**
+ * Segundos de narracion por escena — y como una escena es un plano con su propio clip, esto decide
+ * CADA CUANTO CAMBIA LA IMAGEN, que es la palanca de retencion mas barata que tiene el pipeline.
+ *
+ * Los dos numeros salen de referencias distintas a proposito:
+ * - `short`: en formato vertical el plano deberia cambiar cada 3-5s, y hace falta un cambio de
+ *   energia cada 10-15s para reiniciar la atencion. Con los 10s de antes, un Short de 90s cambiaba
+ *   de imagen 9 veces en total (~8.6s por plano medidos sobre el canal): mas cerca de una
+ *   presentacion de diapositivas que de un Short.
+ * - `long`: la referencia es la contraria, 3-5 cortes por minuto. Aplicarle el ritmo de Shorts a un
+ *   video de 10 minutos daria 120 escenas — 120 busquedas y descargas de stock — sin ganar nada.
+ *
+ * Es el numero que hay que mover si se quiere probar otro ritmo: sube los cortes y baja el texto por
+ * escena a la vez, porque el presupuesto de palabras total no cambia.
+ */
+const SECONDS_PER_SCENE = { short: 5, long: 10 } as const;
+
 function buildStyleGuide(targetDurationSeconds: number, format: "long" | "short"): string {
   const { minWords, maxWords } = computeWordBudget(targetDurationSeconds);
-  const sceneCount = Math.max(3, Math.round(targetDurationSeconds / 10));
+  const sceneCount = Math.max(3, Math.round(targetDurationSeconds / SECONDS_PER_SCENE[format]));
 
   const durationBlock = `DURACION Y EXTENSION (obligatorio, se valida automaticamente):
 - El guion debe durar aproximadamente ${targetDurationSeconds} segundos al narrarse en voz alta.
 - A ~${WORDS_PER_MINUTE} palabras/minuto, eso equivale a ENTRE ${minWords} Y ${maxWords} palabras de narracion en total (suma de todas las escenas). Este es un rango estricto: pasarte de ${maxWords} palabras es tan incorrecto como quedarte corto de ${minWords} — si te pasas, el sistema recorta el guion automaticamente y corta la historia a la mitad, así que cuenta tus palabras mientras escribes.
-- Divide la narracion en unas ${sceneCount} escenas (aprox. 8-12s cada una), cada una con su narrationText.
+- Divide la narracion en unas ${sceneCount} escenas ${
+    format === "short"
+      ? "(aprox. 4-6s cada una, es decir UNA sola idea o frase por escena — cada escena es un plano distinto, y si el plano no cambia el espectador se va)"
+      : "(aprox. 8-12s cada una)"
+  }, cada una con su narrationText.
 - Con ese presupuesto de palabras, cuenta una historia completa pero compacta: ve directo al punto en cada escena, sin relleno ni descripciones largas. Prioriza que quepan planteamiento, desarrollo y cierre dentro del limite antes que desarrollar cada parte a fondo.`;
 
   return `${SCRIPT_TONE_GUIDE}\n\n${durationBlock}\n\n${buildSeoGuide(format)}`;
