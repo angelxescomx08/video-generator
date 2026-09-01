@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "pnpm docker:up:deps && concurrently -n web,worker -c blue,green \"pnpm --filter web dev\" \"pnpm --filter worker dev\"",
+    "start": "pnpm docker:up:deps && concurrently -n web,worker -c blue,green \"pnpm --filter web start\" \"pnpm --filter worker start\"",
     "docker:up": "docker compose up -d",
     "docker:up:deps": "docker compose up -d postgres ollama tts adminer",
     "docker:down": "docker compose down",

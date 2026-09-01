@@ -21,6 +21,7 @@ pnpm db:seed                # inserta temas de ejemplo
 pnpm dev                    # corre apps/web + apps/worker en paralelo (requiere docker:up:deps antes)
 pnpm typecheck              # tsc --noEmit en todos los packages/apps
 pnpm build                  # build de todos los packages/apps
+pnpm start                  # corre apps/web + apps/worker ya buildeados (requiere pnpm build antes)
 ```
 
 No hay suite de tests todavía — al agregar una, preferir tests unitarios puros para
@@ -115,3 +116,16 @@ nombres conocidos) ni los handlers del worker (llaman siempre a través del regi
   (`apps/web/src/app/api/videos/[id]/feedback/route.ts`), no en el worker — es la única lógica de
   memoria que vive en `apps/web` en vez de `apps/worker`, porque es una escritura barata y no
   bloquea ningún render.
+- Los paquetes internos (`packages/*`) exponen `main`/`types` apuntando directo a `./src/index.ts`
+  (sin paso de build propio) — funciona en `dev` (tsx/webpack transpilan TS al vuelo) y en el build
+  de `apps/web` (Next bundlea las fuentes TS de los workspaces), pero `node` puro no puede resolver
+  esos imports `.ts`. Por eso `apps/worker`'s `start` corre `tsx src/index.ts` en vez de
+  `node dist/index.js`: el `dist/` que genera `pnpm --filter worker build` (tsc) queda con imports
+  a paquetes hermanos que un `node` normal no puede cargar.
+- Los scripts `build`/`start` de `apps/web` cargan el `.env` de la raíz con `dotenv-cli` y fuerzan
+  `-v NODE_ENV=production` explícito: el `.env` trae `NODE_ENV=development` para `dev`, y como
+  `dotenv-cli` no sobreescribe variables ya puestas en el entorno, sin ese `-v` el build de Next
+  corre en modo dev y rompe el prerender (`<Html> should not be imported outside of pages/_document`).
+- `pnpm start` (raíz) requiere haber corrido `pnpm build` antes — solo levanta lo ya compilado,
+  no compila nada. Usa el mismo puerto 3001 que `dev` para `apps/web`; si tienes otro proceso local
+  en ese puerto (de otro proyecto), falla con `EADDRINUSE`.

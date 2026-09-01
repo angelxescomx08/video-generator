@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
     "build": "tsc",
-    "start": "dotenv -e ../../.env -- node dist/index.js",
+    "start": "dotenv -e ../../.env -- tsx src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -60,6 +60,13 @@ pnpm db:seed                # inserta temas de ejemplo (cristianismo/biblia + ge
 pnpm dev                    # corre web (localhost:3001) y worker en paralelo
 ```
 
+Para correrlo en modo producción (sin hot-reload), en vez de `pnpm dev`:
+
+```bash
+pnpm build                  # compila web y worker
+pnpm start                  # levanta docker deps + web (localhost:3001) + worker ya buildeados
+```
+
 Primera vez con Ollama, descarga el modelo:
 
 ```bash
