@@ -13,7 +13,22 @@ import { STAGES } from "../pipeline/stage-context";
 import { logger } from "../util/logger";
 
 export async function handlePublishVideo(payload: PublishJobPayload): Promise<void> {
-  const { videoId, platformAccountId } = publishJobPayloadSchema.parse(payload);
+  // El parse vive FUERA de runStage, asi que un payload malformado reventaba sin que nadie marcara el
+  // video como fallido: se quedaba en 'queued' para siempre y el panel de publicar lo leia como
+  // "ocupado", sin salida desde la UI. Se rescata el videoId a mano para cerrar el ciclo antes de
+  // propagar el error.
+  const parsedPayload = publishJobPayloadSchema.safeParse(payload);
+  if (!parsedPayload.success) {
+    const missing = parsedPayload.error.issues.map((issue) => issue.path.join(".")).join(", ");
+    const rawVideoId = (payload as { videoId?: unknown } | null)?.videoId;
+    if (typeof rawVideoId === "string") {
+      await setVideoStatus(rawVideoId, "failed", {
+        errorMessage: `Payload de publicacion invalido (${missing}). El video quedo listo para publicar de nuevo.`,
+      });
+    }
+    throw new Error(`Payload de publicacion invalido: ${missing}`);
+  }
+  const { videoId, platformAccountId } = parsedPayload.data;
 
   const video = await db.query.videos.findFirst({ where: eq(videos.id, videoId) });
   if (!video) throw new Error(`Video ${videoId} not found`);

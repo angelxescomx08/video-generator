@@ -6,17 +6,27 @@ export async function enqueueVideoGeneration(videoId: string): Promise<void> {
   await boss.send(QUEUES.GENERATE_SCRIPT, { videoId });
 }
 
-/** Mapea el stage que fallo a su cola, para reintentar sin repetir stages ya completados (guion, tts, etc). */
+/**
+ * Mapea el stage que fallo a su cola, para reintentar sin repetir stages ya completados (guion, tts,
+ * etc). `publish` NO esta aqui a proposito: es el unico job cuyo payload lleva algo mas que el
+ * videoId, asi que se reencola con `enqueuePublish`.
+ */
 const STAGE_QUEUE: Partial<Record<JobType, string>> = {
   script: QUEUES.GENERATE_SCRIPT,
   tts: QUEUES.GENERATE_TTS,
   stock_footage: QUEUES.FETCH_STOCK_FOOTAGE,
   edl: QUEUES.BUILD_EDL,
   render: QUEUES.RENDER_VIDEO,
-  publish: QUEUES.PUBLISH_VIDEO,
 };
 
 export async function enqueueVideoResume(videoId: string, failedStage: JobType): Promise<void> {
+  // Reanudar `publish` por aqui mandaba `{ videoId }` a una cola cuyo schema exige
+  // `platformAccountId`: el worker moria en el zod.parse ANTES de runStage, nadie marcaba el video
+  // como fallido y se quedaba en 'queued' para siempre. Se corta explicito para que no vuelva a
+  // colarse en silencio.
+  if (failedStage === "publish") {
+    throw new Error("El stage 'publish' se reencola con enqueuePublish(videoId, platformAccountId)");
+  }
   const queue = STAGE_QUEUE[failedStage] ?? QUEUES.GENERATE_SCRIPT;
   const boss = await getBoss();
   await boss.send(queue, { videoId });
