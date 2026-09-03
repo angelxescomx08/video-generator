@@ -116,6 +116,7 @@ export function ProviderSettingsPanel({
   const [modelErrors, setModelErrors] = useState<Record<string, string>>({});
   const [modelsPending, setModelsPending] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<Record<string, string | undefined>>(currentModels);
+  const [modelSaveStatus, setModelSaveStatus] = useState<Record<string, "saving" | "saved" | "error" | undefined>>({});
 
   async function loadModels(providerType: string, providerName: string) {
     const key = `${providerType}:${providerName}`;
@@ -139,11 +140,22 @@ export function ProviderSettingsPanel({
   async function saveModel(providerType: string, providerName: string, model: string) {
     const key = `${providerType}:${providerName}`;
     setSelectedModel((prev) => ({ ...prev, [key]: model }));
-    await fetch("/api/settings/providers", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ providerType, providerName, model }),
-    });
+    setModelSaveStatus((prev) => ({ ...prev, [key]: "saving" }));
+    try {
+      const response = await fetch("/api/settings/providers", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerType, providerName, model }),
+      });
+      if (!response.ok) throw new Error();
+      setModelSaveStatus((prev) => ({ ...prev, [key]: "saved" }));
+      // El "Guardado" es informativo, no un estado permanente: se retira solo si nada lo cambio antes.
+      setTimeout(() => {
+        setModelSaveStatus((prev) => (prev[key] === "saved" ? { ...prev, [key]: undefined } : prev));
+      }, 2000);
+    } catch {
+      setModelSaveStatus((prev) => ({ ...prev, [key]: "error" }));
+    }
   }
 
   async function setDefault(providerType: string, providerName: string) {
@@ -256,20 +268,32 @@ export function ProviderSettingsPanel({
                     {MODEL_CAPABLE_TYPES.has(type) && (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {availableModels[key]?.length ? (
-                          <select
-                            value={selectedModel[key] ?? ""}
-                            onChange={(e) => saveModel(type, opt.name, e.target.value)}
-                            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-                          >
-                            <option value="" disabled>
-                              Elige un modelo
-                            </option>
-                            {availableModels[key]!.map((m) => (
-                              <option key={m} value={m}>
-                                {m}
+                          <>
+                            <select
+                              value={selectedModel[key] ?? ""}
+                              onChange={(e) => saveModel(type, opt.name, e.target.value)}
+                              disabled={modelSaveStatus[key] === "saving"}
+                              className="rounded-md border border-border bg-background px-2 py-1 text-xs disabled:opacity-50"
+                            >
+                              <option value="" disabled>
+                                Elige un modelo
                               </option>
-                            ))}
-                          </select>
+                              {availableModels[key]!.map((m) => (
+                                <option key={m} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                            </select>
+                            {modelSaveStatus[key] === "saving" && (
+                              <span className="text-xs text-muted-foreground">Guardando...</span>
+                            )}
+                            {modelSaveStatus[key] === "saved" && (
+                              <span className="text-xs text-emerald-600 dark:text-emerald-400">Guardado ✓</span>
+                            )}
+                            {modelSaveStatus[key] === "error" && (
+                              <span className="text-xs text-destructive">No se pudo guardar, intenta de nuevo</span>
+                            )}
+                          </>
                         ) : (
                           <>
                             {selectedModel[key] && (
