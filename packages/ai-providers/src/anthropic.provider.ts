@@ -106,4 +106,15 @@ export class AnthropicProvider implements AIProvider {
       return false;
     }
   }
+
+  async listModels(): Promise<string[]> {
+    const response = await fetch("https://api.anthropic.com/v1/models", {
+      headers: { "x-api-key": this.options.apiKey, "anthropic-version": "2023-06-01" },
+    });
+    if (!response.ok) {
+      throw new Error(`Anthropic models request failed: ${response.status} ${await response.text()}`);
+    }
+    const data = (await response.json()) as { data: { id: string }[] };
+    return data.data.map((m) => m.id);
+  }
 }

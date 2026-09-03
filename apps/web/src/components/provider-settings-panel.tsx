@@ -92,16 +92,59 @@ const SECTION_NOTES: Partial<Record<keyof typeof PROVIDER_OPTIONS, string>> = {
 /** Los tipos que aceptan varios proveedores activos a la vez (se combinan para dar variedad). */
 const MULTI_SELECT_TYPES = new Set<keyof typeof PROVIDER_OPTIONS>(["stock"]);
 
+/**
+ * Tipos cuyos providers implementan `listModels()` (ver AIProvider.listModels en
+ * @video-generator/ai-providers). Hoy solo "ai" — al agregar el metodo a la interfaz de otro tipo
+ * (tts, por ejemplo, para elegir voz), basta con sumarlo aqui: el selector ya sabe consultar y
+ * guardar el modelo via /api/settings/providers/models y PUT /api/settings/providers.
+ */
+const MODEL_CAPABLE_TYPES = new Set<keyof typeof PROVIDER_OPTIONS>(["ai"]);
+
 export function ProviderSettingsPanel({
   currentDefaults,
   initialEnabled,
+  currentModels,
 }: {
   currentDefaults: Record<string, string | undefined>;
   initialEnabled: string[];
+  currentModels: Record<string, string | undefined>;
 }) {
   const [defaults, setDefaults] = useState(currentDefaults);
   const [enabled, setEnabled] = useState<Set<string>>(new Set(initialEnabled));
   const [pending, setPending] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<Record<string, string[]>>({});
+  const [modelErrors, setModelErrors] = useState<Record<string, string>>({});
+  const [modelsPending, setModelsPending] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<Record<string, string | undefined>>(currentModels);
+
+  async function loadModels(providerType: string, providerName: string) {
+    const key = `${providerType}:${providerName}`;
+    setModelsPending(key);
+    setModelErrors((prev) => ({ ...prev, [key]: "" }));
+    try {
+      const response = await fetch(`/api/settings/providers/models?providerName=${providerName}`);
+      const data = (await response.json()) as { models?: string[]; error?: string };
+      if (!response.ok) throw new Error(data.error ?? "No se pudo consultar los modelos");
+      setAvailableModels((prev) => ({ ...prev, [key]: data.models ?? [] }));
+    } catch (error) {
+      setModelErrors((prev) => ({
+        ...prev,
+        [key]: error instanceof Error ? error.message : "No se pudo consultar los modelos",
+      }));
+    } finally {
+      setModelsPending(null);
+    }
+  }
+
+  async function saveModel(providerType: string, providerName: string, model: string) {
+    const key = `${providerType}:${providerName}`;
+    setSelectedModel((prev) => ({ ...prev, [key]: model }));
+    await fetch("/api/settings/providers", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ providerType, providerName, model }),
+    });
+  }
 
   async function setDefault(providerType: string, providerName: string) {
     setPending(`${providerType}:${providerName}`);
@@ -208,6 +251,46 @@ export function ProviderSettingsPanel({
 
                     {opt.license && (
                       <p className="mt-2 text-xs text-muted-foreground">{opt.license}</p>
+                    )}
+
+                    {MODEL_CAPABLE_TYPES.has(type) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {availableModels[key]?.length ? (
+                          <select
+                            value={selectedModel[key] ?? ""}
+                            onChange={(e) => saveModel(type, opt.name, e.target.value)}
+                            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+                          >
+                            <option value="" disabled>
+                              Elige un modelo
+                            </option>
+                            {availableModels[key]!.map((m) => (
+                              <option key={m} value={m}>
+                                {m}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <>
+                            {selectedModel[key] && (
+                              <span className="text-xs text-muted-foreground">
+                                Modelo actual: <span className="font-medium text-foreground">{selectedModel[key]}</span>
+                              </span>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={modelsPending === key}
+                              onClick={() => loadModels(type, opt.name)}
+                            >
+                              {modelsPending === key ? "Consultando..." : "Ver modelos disponibles"}
+                            </Button>
+                          </>
+                        )}
+                        {modelErrors[key] && (
+                          <span className="text-xs text-destructive">{modelErrors[key]}</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 );

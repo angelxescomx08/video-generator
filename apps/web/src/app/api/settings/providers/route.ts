@@ -12,6 +12,10 @@ const setEnabledSchema = setDefaultSchema.extend({
   isEnabled: z.boolean(),
 });
 
+const setModelSchema = setDefaultSchema.extend({
+  model: z.string().min(1),
+});
+
 export async function GET() {
   const rows = await db.select().from(providerConfigs);
   return NextResponse.json(rows);
@@ -81,6 +85,33 @@ export async function PATCH(request: Request) {
     : (
         await db.insert(providerConfigs).values({ providerType, providerName, isEnabled }).returning()
       )[0];
+
+  return NextResponse.json(row);
+}
+
+/** Guarda el modelo elegido para un proveedor (ver AIProvider.listModels) sin tocar isDefault/isEnabled. */
+export async function PUT(request: Request) {
+  const body = await request.json();
+  const parsed = setModelSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+
+  const { providerType, providerName, model } = parsed.data;
+
+  const existing = await db.query.providerConfigs.findFirst({
+    where: and(eq(providerConfigs.providerType, providerType), eq(providerConfigs.providerName, providerName)),
+  });
+
+  const config = { ...((existing?.config as Record<string, unknown> | null) ?? {}), model };
+
+  const row = existing
+    ? (
+        await db
+          .update(providerConfigs)
+          .set({ config, updatedAt: new Date() })
+          .where(eq(providerConfigs.id, existing.id))
+          .returning()
+      )[0]
+    : (await db.insert(providerConfigs).values({ providerType, providerName, config }).returning())[0];
 
   return NextResponse.json(row);
 }

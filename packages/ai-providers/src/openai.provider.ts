@@ -135,4 +135,24 @@ export class OpenAIProvider implements AIProvider {
       return false;
     }
   }
+
+  /**
+   * /v1/models trae de todo (embeddings, whisper, dall-e, tts, moderacion, modelos deprecados). Se
+   * filtra a los que sirven para chat/JSON (chatJson los usa via /v1/chat/completions), que es lo
+   * unico que este provider expone.
+   */
+  async listModels(): Promise<string[]> {
+    const response = await fetch("https://api.openai.com/v1/models", {
+      headers: { Authorization: `Bearer ${this.options.apiKey}` },
+    });
+    if (!response.ok) {
+      throw new Error(`OpenAI models request failed: ${response.status} ${await response.text()}`);
+    }
+    const data = (await response.json()) as { data: { id: string }[] };
+    return data.data
+      .map((m) => m.id)
+      .filter((id) => /^(gpt-|chatgpt-|o[0-9])/.test(id))
+      .filter((id) => !/(audio|realtime|embedding|whisper|tts|dall-e|image|moderation|transcribe|search)/.test(id))
+      .sort();
+  }
 }

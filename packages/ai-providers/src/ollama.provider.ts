@@ -169,4 +169,14 @@ ${EDL_JSON_INSTRUCTIONS}`;
       return false;
     }
   }
+
+  /** /api/tags lista lo YA descargado localmente, no un catalogo remoto — es lo que se puede usar ya. */
+  async listModels(): Promise<string[]> {
+    const response = await fetch(`${this.options.baseUrl}/api/tags`);
+    if (!response.ok) {
+      throw new Error(`Ollama tags request failed: ${response.status} ${await response.text()}`);
+    }
+    const data = (await response.json()) as { models: { name: string }[] };
+    return data.models.map((m) => m.name).sort();
+  }
 }

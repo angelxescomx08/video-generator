@@ -212,6 +212,12 @@ export interface AIProvider {
   classifyDimension(req: DimensionClassificationRequest): Promise<AICallResult<string>>;
   embed(req: EmbeddingRequest): Promise<AICallResult<number[]>>;
   healthCheck(): Promise<boolean>;
+  /**
+   * Lista los modelos que el proveedor tiene disponibles ahora mismo (no un catalogo estatico), para
+   * poblar el selector de modelo en /settings/providers. Es una consulta de metadata: ningun
+   * proveedor la cobra como si fuera inferencia.
+   */
+  listModels(): Promise<string[]>;
 }
 
 /** Prompt de propuesta, compartido: la unica diferencia entre providers es como se pide el JSON. */

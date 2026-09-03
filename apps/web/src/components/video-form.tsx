@@ -145,7 +145,7 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
                   <span className="text-red-600 line-through dark:text-red-400">quitado</span> /{" "}
                   <span className="text-emerald-600 dark:text-emerald-400">agregado</span>):
                 </p>
-                <div className="whitespace-pre-wrap rounded-md border border-border bg-background p-2 leading-relaxed">
+                <div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 leading-relaxed">
                   {diff.map((seg, idx) => {
                     if (seg.type === "equal") return <span key={idx}>{seg.value}</span>;
                     if (seg.type === "removed")

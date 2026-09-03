@@ -9,28 +9,33 @@ import type { AIProvider } from "./types";
 
 export type AIProviderName = "ollama" | "openai" | "gemini" | "anthropic";
 
-function instantiate(name: AIProviderName): AIProvider {
+/**
+ * `modelOverride` viene de `provider_configs.config.model` (ver /settings/providers): el usuario
+ * elige el proveedor Y el modelo ahi, y ese modelo pisa el default del .env sin requerir reinicio
+ * del proceso (a diferencia de cambiar OPENAI_MODEL/GEMINI_MODEL/etc en el .env).
+ */
+function instantiate(name: AIProviderName, modelOverride?: string): AIProvider {
   const env = loadEnv();
   switch (name) {
     case "ollama":
       return new OllamaProvider({
         baseUrl: env.OLLAMA_BASE_URL,
-        model: env.OLLAMA_MODEL,
+        model: modelOverride ?? env.OLLAMA_MODEL,
         embeddingModel: env.OLLAMA_EMBEDDING_MODEL,
       });
     case "openai":
       if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not set");
-      return new OpenAIProvider({ apiKey: env.OPENAI_API_KEY, model: env.OPENAI_MODEL });
+      return new OpenAIProvider({ apiKey: env.OPENAI_API_KEY, model: modelOverride ?? env.OPENAI_MODEL });
     case "gemini":
       if (!env.GOOGLE_GEMINI_API_KEY) throw new Error("GOOGLE_GEMINI_API_KEY is not set");
       return new GeminiProvider({
         apiKey: env.GOOGLE_GEMINI_API_KEY,
-        model: env.GEMINI_MODEL,
+        model: modelOverride ?? env.GEMINI_MODEL,
         embeddingModel: env.GEMINI_EMBEDDING_MODEL,
       });
     case "anthropic":
       if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set");
-      return new AnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL });
+      return new AnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY, model: modelOverride ?? env.ANTHROPIC_MODEL });
   }
 }
 
@@ -42,7 +47,17 @@ export async function resolveProvider(): Promise<AIProvider> {
 
   const env = loadEnv();
   const name = (dbDefault?.providerName as AIProviderName | undefined) ?? env.AI_PROVIDER;
-  return instantiate(name);
+  const modelOverride = (dbDefault?.config as { model?: string } | null)?.model;
+  return instantiate(name, modelOverride);
+}
+
+/**
+ * Consulta en vivo los modelos que el proveedor tiene disponibles ahora mismo (ver
+ * AIProvider.listModels), para poblar el selector de /settings/providers. No requiere que `name`
+ * sea el proveedor por defecto: se puede explorar el catalogo de uno antes de elegirlo.
+ */
+export async function listModelsForProvider(name: AIProviderName): Promise<string[]> {
+  return instantiate(name).listModels();
 }
 
 /**

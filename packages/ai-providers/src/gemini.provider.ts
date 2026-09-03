@@ -339,4 +339,21 @@ export class GeminiProvider implements AIProvider {
       return false;
     }
   }
+
+  /** Filtra a los modelos que soportan generateContent (texto/JSON); descarta embeddings e imagen. */
+  async listModels(): Promise<string[]> {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${this.options.apiKey}`,
+    );
+    if (!response.ok) {
+      throw new Error(`Gemini models request failed: ${response.status} ${await response.text()}`);
+    }
+    const data = (await response.json()) as {
+      models: { name: string; supportedGenerationMethods?: string[] }[];
+    };
+    return data.models
+      .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+      .map((m) => m.name.replace(/^models\//, ""))
+      .sort();
+  }
 }

@@ -11,6 +11,13 @@ export default async function ProvidersSettingsPage() {
   );
   // Los tipos multi-seleccion (stock) necesitan saber cada fila habilitada, no solo el default.
   const enabled = rows.filter((r) => r.isEnabled).map((r) => `${r.providerType}:${r.providerName}`);
+  // Modelo guardado por proveedor (config.model), keyado igual que `enabled` porque cada proveedor
+  // de un mismo tipo puede tener su propio modelo elegido.
+  const currentModels = Object.fromEntries(
+    rows
+      .filter((r) => (r.config as { model?: string } | null)?.model)
+      .map((r) => [`${r.providerType}:${r.providerName}`, (r.config as { model: string }).model]),
+  );
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -21,7 +28,7 @@ export default async function ProvidersSettingsPage() {
           de pago requieren su API key en .env.
         </p>
       </div>
-      <ProviderSettingsPanel currentDefaults={currentDefaults} initialEnabled={enabled} />
+      <ProviderSettingsPanel currentDefaults={currentDefaults} initialEnabled={enabled} currentModels={currentModels} />
     </div>
   );
 }
