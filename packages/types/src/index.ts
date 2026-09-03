@@ -1,4 +1,5 @@
 export * from "./edl";
+export * from "./script";
 export * from "./generation-request";
 export * from "./prompt-sanitizer";
 export * from "./prompt-diff";

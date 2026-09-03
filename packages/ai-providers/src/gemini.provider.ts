@@ -1,6 +1,7 @@
 import { EMBEDDING_DIMENSIONS } from "@video-generator/db";
 import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
 import { estimateGeminiCost } from "./pricing";
+import { parseScriptResult } from "./script-result";
 import { geminiCharBudget, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
 import {
@@ -246,7 +247,7 @@ export class GeminiProvider implements AIProvider {
       `Devuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`,
     );
     const { json, cost } = await this.generateJson(req.systemPrompt, userPrompt, SCRIPT_RESPONSE_SCHEMA);
-    return { result: json as ScriptGenerationResult, cost };
+    return { result: parseScriptResult(this.name, json), cost };
   }
 
   async generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>> {

@@ -1,5 +1,6 @@
 import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from "@video-generator/types";
 import { estimateAnthropicCost } from "./pricing";
+import { parseScriptResult } from "./script-result";
 import { buildScriptUserPrompt } from "./script-context";
 import { buildDimensionClassificationPrompt, buildDimensionProposalPrompt, MUSIC_SUGGESTION_INSTRUCTION, NotImplementedError, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION, type AICallResult, type DimensionClassificationRequest, type DimensionProposalRequest, type ProposedDimension, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
 
@@ -63,7 +64,7 @@ export class AnthropicProvider implements AIProvider {
       `Devuelve JSON con title, description, script, scenes[], tags[], extractedFacts[]. ${VISUAL_KEYWORDS_INSTRUCTION}`,
     );
     const { json, cost } = await this.messageJson(req.systemPrompt, userPrompt);
-    return { result: json as ScriptGenerationResult, cost };
+    return { result: parseScriptResult(this.name, json), cost };
   }
 
   async generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>> {

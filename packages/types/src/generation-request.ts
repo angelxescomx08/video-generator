@@ -22,13 +22,7 @@ export const regenerateVideoRequestSchema = z.object({
 });
 export type RegenerateVideoRequest = z.infer<typeof regenerateVideoRequestSchema>;
 
-export interface ScriptScene {
-  index: number;
-  narrationText: string;
-  estimatedDurationSeconds: number;
-  visualKeywords: string[];
-  captionText?: string;
-}
+// `ScriptScene` vive en ./script, derivada del zod que valida el guion — una sola fuente de verdad.
 
 export interface MemoryContextItem {
   content: string;

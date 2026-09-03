@@ -1,5 +1,6 @@
 import { editDecisionListSchema, type EditDecisionList } from "@video-generator/types";
 import { ollamaCost } from "./pricing";
+import { parseScriptResult } from "./script-result";
 import { EMBEDDING_CHAR_BUDGETS, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
 import { buildDimensionClassificationPrompt, buildDimensionProposalPrompt, MUSIC_SUGGESTION_INSTRUCTION, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
@@ -90,7 +91,7 @@ export class OllamaProvider implements AIProvider {
   async generateScript(req: ScriptGenerationRequest): Promise<AICallResult<ScriptGenerationResult>> {
     const userPrompt = buildScriptUserPrompt(req, SCRIPT_JSON_INSTRUCTIONS);
     const raw = await this.chatJson(req.systemPrompt, userPrompt);
-    return { result: raw as ScriptGenerationResult, cost: ollamaCost(this.options.model) };
+    return { result: parseScriptResult(this.name, raw), cost: ollamaCost(this.options.model) };
   }
 
   async generateEDL(req: EDLGenerationRequest): Promise<AICallResult<EditDecisionList>> {

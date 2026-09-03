@@ -1,14 +1,20 @@
 import { YOUTUBE_AUDIO_GENRES, YOUTUBE_AUDIO_MOODS } from "@video-generator/types";
-import type { EditDecisionList, PerformanceLearning, ProviderCost } from "@video-generator/types";
+import type {
+  EditDecisionList,
+  ExtractedFact,
+  PerformanceLearning,
+  ProviderCost,
+  ScriptGenerationResult,
+  ScriptScene,
+} from "@video-generator/types";
 import type { StockClipRef } from "@video-generator/types";
 
-export interface ScriptScene {
-  index: number;
-  narrationText: string;
-  estimatedDurationSeconds: number;
-  visualKeywords: string[];
-  captionText?: string;
-}
+/**
+ * La forma de una escena y del guion completo la define el zod de `@video-generator/types`
+ * (script.ts), no una interfaz suelta aqui: es lo que valida `parseScriptResult` en los cuatro
+ * providers, asi que el tipo y la validacion no pueden separarse.
+ */
+export type { ExtractedFact, ScriptGenerationResult, ScriptScene };
 
 export interface MemoryContextItem {
   content: string;
@@ -55,20 +61,6 @@ export interface ScriptGenerationRequest {
   regenerationInstruction?: string;
   /** Guia de tono/estilo + refuerzo de duracion (numero de palabras/escenas). La arma el builder; todos los providers la deben incluir en el prompt. */
   styleGuide?: string;
-}
-
-export interface ExtractedFact {
-  factType: string;
-  factValue: string;
-}
-
-export interface ScriptGenerationResult {
-  title: string;
-  description: string;
-  script: string;
-  scenes: ScriptScene[];
-  tags: string[];
-  extractedFacts: ExtractedFact[];
 }
 
 export interface EDLGenerationRequest {
