@@ -14,11 +14,33 @@ import type { MusicTrack } from "@video-generator/db";
 import {
   BACKGROUND_MUSIC_LEVELS,
   YOUTUBE_AUDIO_GENRE_LABELS_ES,
+  YOUTUBE_AUDIO_MOOD_LABELS_ES,
   type YoutubeAudioGenre,
+  type YoutubeAudioMood,
   type YoutubeAudioSuggestion,
 } from "@video-generator/types";
 
 const NO_MUSIC = "__none__";
+
+/** Generos y animos en español, como se leen en la etiqueta de una pista o en la sugerencia. */
+function toSpanish(genres: string[], moods: string[]): string[] {
+  return [
+    ...genres.map((g) => YOUTUBE_AUDIO_GENRE_LABELS_ES[g as YoutubeAudioGenre] ?? g),
+    ...moods.map((m) => YOUTUBE_AUDIO_MOOD_LABELS_ES[m as YoutubeAudioMood] ?? m),
+  ];
+}
+
+/**
+ * Etiquetas de una pista para mostrarlas DENTRO del `<option>`.
+ *
+ * Sin esto el desplegable solo decia titulo y artista, asi que no habia forma de saber cual encajaba
+ * con el video sin abrir la biblioteca: el ★ marcaba la coincidencia pero no decia en que. Un
+ * `<option>` no admite markup, por eso van como texto plano separadas por puntos.
+ */
+function trackTagsLabel(track: MusicTrack): string {
+  const labels = toSpanish(track.genres, track.moods);
+  return labels.length > 0 ? labels.join(", ") : "sin etiquetas";
+}
 
 /**
  * Cambia la musica de fondo del video. Cada cambio dispara solo un re-render (ffmpeg) y queda como
@@ -45,6 +67,7 @@ export function VideoMusicPanel({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [onlySuggested, setOnlySuggested] = useState(false);
   /**
    * Canciones subidas desde aqui mismo. `tracks` viene del servidor y solo se actualiza cuando
    * termina el `router.refresh()`; guardarlas tambien en local hace que aparezcan seleccionadas en
@@ -57,19 +80,30 @@ export function VideoMusicPanel({
     ...tracks,
   ];
 
-  // Canciones cuyo genero coincide con lo que la IA sugirio para este video: atajo util cuando la
-  // biblioteca ya tiene muchas pistas.
+  // Canciones cuyo genero o animo coincide con lo que la IA sugirio para este video: atajo util
+  // cuando la biblioteca ya tiene muchas pistas.
   const suggestedIds = new Set(
     suggestion
       ? allTracks
           .filter(
             (t) =>
               t.genres.some((g) => suggestion.genres.includes(g as YoutubeAudioGenre)) ||
-              t.moods.some((m) => suggestion.moods.includes(m as never)),
+              t.moods.some((m) => suggestion.moods.includes(m as YoutubeAudioMood)),
           )
           .map((t) => t.id)
       : [],
   );
+
+  /**
+   * La seleccionada siempre se queda en la lista aunque no encaje con la sugerencia: si el filtro la
+   * escondiera, el `<select>` se quedaria mostrando un valor que ya no existe entre sus opciones y
+   * el usuario veria el desplegable en blanco sin haber cambiado nada.
+   */
+  const visibleTracks = onlySuggested
+    ? allTracks.filter((t) => suggestedIds.has(t.id) || t.id === selected)
+    : allTracks;
+
+  const suggestionLabels = suggestion ? toSpanish(suggestion.genres, suggestion.moods) : [];
 
   const unchanged = selected === (currentTrackId ?? NO_MUSIC);
 
@@ -170,26 +204,49 @@ export function VideoMusicPanel({
         ) : (
           <>
             <div className="space-y-2">
+              {suggestionLabels.length > 0 && (
+                <div className="rounded-md border border-border bg-muted/30 p-2.5">
+                  <p className="text-xs text-muted-foreground">
+                    La IA sugirio para este video:{" "}
+                    <span className="font-medium text-foreground">{suggestionLabels.join(", ")}</span>
+                  </p>
+                  <label className="mt-2 flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={onlySuggested}
+                      disabled={suggestedIds.size === 0}
+                      onChange={(e) => setOnlySuggested(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-border"
+                    />
+                    <span className={suggestedIds.size === 0 ? "text-muted-foreground" : ""}>
+                      Ver solo las que encajan ({suggestedIds.size})
+                    </span>
+                  </label>
+                  {suggestedIds.size === 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Ninguna cancion de tu biblioteca tiene ese genero o animo. Etiquetalas al subirlas
+                      para poder filtrar aqui.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <Label htmlFor="music-select">Cancion</Label>
               <Select id="music-select" value={selected} onChange={(e) => setSelected(e.target.value)}>
                 <option value={NO_MUSIC}>Sin musica (solo narracion)</option>
-                {allTracks.map((t) => (
+                {visibleTracks.map((t) => (
                   <option key={t.id} value={t.id}>
                     {suggestedIds.has(t.id) ? "★ " : ""}
                     {t.title}
                     {t.artist ? ` — ${t.artist}` : ""}
+                    {` · ${trackTagsLabel(t)}`}
                   </option>
                 ))}
               </Select>
               {suggestedIds.size > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  ★ = coincide con el genero/animo que la IA sugirio para este video
-                  {suggestion && suggestion.genres.length > 0
-                    ? ` (${suggestion.genres
-                        .map((g) => YOUTUBE_AUDIO_GENRE_LABELS_ES[g as YoutubeAudioGenre] ?? g)
-                        .join(", ")})`
-                    : ""}
-                  .
+                  ★ = coincide con la sugerencia. Despues del punto van el genero y el animo de cada
+                  cancion, para compararlos con el de arriba.
                 </p>
               )}
             </div>
