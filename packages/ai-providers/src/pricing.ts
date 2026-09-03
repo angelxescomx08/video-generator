@@ -41,6 +41,12 @@ const GEMINI_PRICING: Record<string, ModelPrice> = {
 const GEMINI_DEFAULT: ModelPrice = { inputPer1M: 0.75, outputPer1M: 3.75 };
 
 const OPENAI_PRICING: Record<string, ModelPrice> = {
+  // Familia GPT-5.6 (Sol/Terra/Luna), tarifas al 2026-07-30: ese dia OpenAI recorto Luna 80% y
+  // Terra 20%, Sol quedo igual. OJO: pasando 272K tokens de entrada aplica recargo de contexto
+  // largo (Sol 10/45, Terra 4/18) que esta tabla NO modela — subestima esos casos.
+  "gpt-5.6-sol": { inputPer1M: 5, outputPer1M: 30 },
+  "gpt-5.6-terra": { inputPer1M: 2, outputPer1M: 12 },
+  "gpt-5.6-luna": { inputPer1M: 0.2, outputPer1M: 1.2 },
   "gpt-4o-mini": { inputPer1M: 0.15, outputPer1M: 0.6 },
   // gpt-4o quedo "grandfathered" en su tarifa vieja tras el lanzamiento de la familia GPT-4.1.
   "gpt-4o": { inputPer1M: 2.5, outputPer1M: 10 },
