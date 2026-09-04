@@ -5,12 +5,14 @@ import { usePathname } from "next/navigation";
 
 const TABS = [
   { href: "/analytics", label: "Rendimiento" },
+  { href: "/analytics/discoveries", label: "Descubrimientos" },
   { href: "/analytics/costs", label: "Costos" },
 ];
 
 /**
- * Rendimiento y costo son dos preguntas distintas sobre los mismos videos ("¿funciono?" y "¿cuanto
- * costo?"), asi que viven en dos pantallas y no en una sola con quince graficas. Cliente unicamente
+ * Rendimiento, descubrimientos y costo son tres preguntas distintas sobre los mismos videos
+ * ("¿funciono?", "¿que se esta preguntando el sistema?" y "¿cuanto costo?"), asi que viven en tres
+ * pantallas y no en una sola con quince graficas. Cliente unicamente
  * por `usePathname`, que es lo que marca cual esta abierta.
  */
 export function AnalyticsTabs() {

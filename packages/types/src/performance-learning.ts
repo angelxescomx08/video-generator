@@ -23,6 +23,14 @@ export interface PerformanceLearning {
   buckets: PerformanceBucket[];
   /** Nombre de la metrica con la que se califico esta dimension ("porcentaje del video visto"). */
   outcomeLabel: string;
+  /**
+   * Si la pregunta la propuso la IA (`learning_dimensions`) en vez de estar escrita a mano.
+   *
+   * Al motor le da igual —las dos familias se promedian y se filtran identico, y esa uniformidad es
+   * lo que hace seguro dejar que un LLM proponga—, pero al lector no: una leccion que salio de una
+   * hipotesis inventada se juzga leyendo la hipotesis, y para eso hay que saber que existe.
+   */
+  discovered: boolean;
 }
 
 export interface PerformanceBucket {

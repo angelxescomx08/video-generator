@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { CheckCircle2, Loader2, Sparkles, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DiscoveryRunState } from "@video-generator/analytics";
@@ -148,8 +149,12 @@ export function DiscoverDimensionsButton({
           <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0" />
           <span>
             {run?.proposedCount
-              ? `Listo: ${run.proposedCount} pregunta(s) nueva(s), ya clasificadas sobre el canal. Aparecen arriba con el resto de dimensiones.`
-              : "Listo, pero la IA no propuso ninguna pregunta bien formada esta vez. No se gasto ninguna ranura."}
+              ? `Listo: ${run.proposedCount} pregunta(s) nueva(s), ya clasificadas sobre el canal.`
+              : "Listo, pero la IA no propuso ninguna pregunta bien formada esta vez. No se gasto ninguna ranura."}{" "}
+            <Link href="/analytics/discoveries" className="underline">
+              Ver que pregunto y por que
+            </Link>
+            .
           </span>
         </p>
       ) : null}
@@ -158,6 +163,14 @@ export function DiscoverDimensionsButton({
         <p className="flex items-start gap-2 text-xs text-destructive">
           <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
           <span>{errorText ?? run?.errorMessage ?? "El analisis fallo."}</span>
+        </p>
+      ) : null}
+
+      {phase !== "done" ? (
+        <p className="text-xs">
+          <Link href="/analytics/discoveries" className="underline">
+            Ver las preguntas que ya propuso y en que quedaron
+          </Link>
         </p>
       ) : null}
     </div>

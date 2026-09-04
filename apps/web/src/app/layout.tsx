@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/themes", label: "Temas" },
   { href: "/music", label: "Musica" },
   { href: "/analytics", label: "Analytics" },
+  { href: "/analytics/discoveries", label: "Descubrimientos" },
   { href: "/analytics/costs", label: "Costos" },
   { href: "/settings/providers", label: "Proveedores" },
   { href: "/settings/accounts", label: "Cuentas" },

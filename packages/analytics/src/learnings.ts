@@ -34,7 +34,7 @@ import { extractVideoAttributes, type VideoAttributes } from "./video-attributes
  * comparacion, aunque cuenten tres. Como `effectiveCount <= count` siempre, este umbral tambien
  * garantiza el minimo de 3 videos reales que habia antes.
  */
-const MIN_SAMPLES_PER_BUCKET = 3;
+export const MIN_SAMPLES_PER_BUCKET = 3;
 
 /**
  * Vida media de los pesos, EN VIDEOS (no en dias): cada `halfLife` videos hacia atras, un video pesa
@@ -87,7 +87,7 @@ function effectiveSampleSize(weights: number[]): number {
 }
 
 /** Diferencia minima en puntos porcentuales para que valga la pena mencionar el patron. */
-const MIN_DELTA_POINTS = 5;
+export const MIN_DELTA_POINTS = 5;
 
 /** Cuantas lecciones se pasan al prompt como maximo, de mayor a menor diferencia. */
 const MAX_LEARNINGS = 6;
@@ -136,6 +136,8 @@ interface Dimension {
   outcome: keyof Outcomes;
   outcomeLabel: string;
   bucket: (sample: LearningSample) => string | null;
+  /** De donde salio la pregunta. Solo viaja para que la UI pueda decirlo; el analisis no lo mira. */
+  discovered: boolean;
 }
 
 /** Una pregunta descubierta por la IA, tal como se guardo en `learning_dimensions`. */
@@ -153,13 +155,12 @@ const OUTCOME_LABELS: Record<keyof Outcomes, string> = {
 /** Junta las dos familias de dimensiones bajo el mismo contrato. */
 function allDimensions(discovered: DiscoveredDimension[]): Dimension[] {
   return [
-    ...DIMENSIONS.map((d) => ({ ...d, bucket: (sample: LearningSample) => d.bucket(sample.attrs) })),
-    ...discovered.map((d) => ({
-      label: d.label,
-      outcome: d.outcome,
-      outcomeLabel: OUTCOME_LABELS[d.outcome],
-      bucket: (sample: LearningSample) => sample.discovered[d.id] ?? null,
+    ...DIMENSIONS.map((d) => ({
+      ...d,
+      bucket: (sample: LearningSample) => d.bucket(sample.attrs),
+      discovered: false,
     })),
+    ...discovered.map(discoveredAsDimension),
   ];
 }
 
@@ -544,7 +545,77 @@ function analyzeDimension(dimension: Dimension, samples: LearningSample[]): Perf
     // prompt sigue usando solo `insight`/`recommendation`, asi que esto no le cuesta tokens.
     buckets: usable,
     outcomeLabel: dimension.outcomeLabel,
+    discovered: dimension.discovered,
   };
+}
+
+/**
+ * Una dimension descubierta, vista por dentro: sus grupos con QUE videos cayeron en cada uno.
+ *
+ * `analyzeDimension` contesta "¿hay leccion?" y tira el detalle; esto contesta "¿por que?". Son la
+ * pantalla de descubrimientos y el prompt mirando la misma pasada: por eso reusa `bucketize` y
+ * `summarizeBucket` en vez de recalcular, o los conteos que ve el usuario no coincidirian con los
+ * que el motor usa para decidir.
+ */
+export interface DiscoveredGroup extends PerformanceBucket {
+  /** Si llega a `MIN_SAMPLES_PER_BUCKET` de muestra efectiva. Los que no, no entran a la comparacion. */
+  usable: boolean;
+  /** Los videos del grupo, del que mas peso tiene al que menos. */
+  videos: { videoId: string; value: number; weight: number }[];
+}
+
+function discoveredAsDimension(discovered: DiscoveredDimension): Dimension {
+  return {
+    label: discovered.label,
+    outcome: discovered.outcome,
+    outcomeLabel: OUTCOME_LABELS[discovered.outcome],
+    bucket: (sample: LearningSample) => sample.discovered[discovered.id] ?? null,
+    discovered: true,
+  };
+}
+
+export function groupByDiscovered(
+  discovered: DiscoveredDimension,
+  samples: LearningSample[],
+): DiscoveredGroup[] {
+  const dimension = discoveredAsDimension(discovered);
+  const members = new Map<string, { videoId: string; value: number; weight: number }[]>();
+
+  for (const sample of samples) {
+    const outcome = sample.outcomes[dimension.outcome];
+    if (outcome === undefined) continue;
+    const key = dimension.bucket(sample);
+    if (key === null) continue;
+    const list = members.get(key) ?? [];
+    list.push({ videoId: sample.videoId, value: outcome, weight: sample.weight });
+    members.set(key, list);
+  }
+
+  return [...members.entries()]
+    .map(([label, videos]) => {
+      const summary = summarizeBucket(label, videos.map((v) => ({ value: v.value, weight: v.weight })));
+      return {
+        ...summary,
+        usable: summary.effectiveCount >= MIN_SAMPLES_PER_BUCKET,
+        videos: [...videos].sort((a, b) => b.weight - a.weight),
+      };
+    })
+    .sort((a, b) => b.mean - a.mean);
+}
+
+/**
+ * La leccion de UNA dimension descubierta, SIN el recorte a `MAX_LEARNINGS`.
+ *
+ * El tablero se queda con las 6 mayores diferencias porque son las que caben en el prompt; la
+ * pantalla de una pregunta concreta tiene que poder decir "esta pregunta ya tiene veredicto" aunque
+ * su diferencia sea la septima. Sin esto, apretar el boton y luego no encontrar el resultado se
+ * leeria como que el descubrimiento fallo.
+ */
+export function analyzeDiscoveredDimension(
+  discovered: DiscoveredDimension,
+  samples: LearningSample[],
+): PerformanceLearning | null {
+  return analyzeDimension(discoveredAsDimension(discovered), samples);
 }
 
 /** Promedio ponderado: los videos recientes mueven mas la aguja que los viejos. */

@@ -12,6 +12,7 @@ export * from "./time-range";
 export * from "./video-attributes";
 export * from "./learnings";
 export * from "./discovery-eligibility";
+export * from "./discoveries";
 export * from "./channel-queries";
 export * from "./cost-queries";
 export * from "./cost-model";

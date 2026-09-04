@@ -39,6 +39,7 @@ No hay suite de tests todavía — al agregar una, preferir tests unitarios puro
 | Cambiar cómo se recupera memoria/contexto para el prompt | `apps/worker/src/memory/retrieve.ts` y `prompts/script-prompt.builder.ts` |
 | Cambiar qué aprende la IA del rendimiento pasado | `packages/analytics/src/learnings.ts` (+ `video-attributes.ts`) |
 | Agregar un corte de analíticas o de costos | `packages/analytics/src/*-queries.ts` |
+| Ver/editar qué muestra la pantalla de dimensiones descubiertas | `packages/analytics/src/discoveries.ts` + `apps/web/src/app/analytics/discoveries/page.tsx` |
 | Dibujar una gráfica nueva | `apps/web/src/components/charts/*` |
 | Cambiar los rangos o la agrupación temporal | `packages/analytics/src/time-range.ts` |
 | Tocar la UI | `apps/web/src/app/**` (App Router) y `apps/web/src/components/**` |
@@ -204,6 +205,17 @@ nombres conocidos) ni los handlers del worker (llaman siempre a través del regi
   de distinguir "hay material nuevo" de "es la misma muestra otra vez".
 - El botón deshabilitado **siempre dice por qué y qué falta** (`reason` + `unlockHint`). Un botón gris
   sin explicación se lee como algo roto; con la razón al lado se lee como lo que es.
+- **El descubrimiento es asíncrono y su resultado vive en otra pantalla, así que las dos cosas se
+  muestran explícitamente.** El botón sondea `GET /api/learnings/discover-dimensions` mientras dura
+  el job porque el POST solo encola: sin eso, "Analizando..." duraba lo que el fetch (milisegundos) y
+  no había forma de distinguir "está clasificando el canal" de "el worker está caído". El estado real
+  es `dimension_discovery_runs.status`, no estado de cliente. Y lo que la IA propuso —la pregunta
+  exacta y su `rationale`— se lee en `/analytics/discoveries`: el tablero solo enseña el `label`, así
+  que sin esa pantalla el resultado del botón existía solo en la base.
+- `PerformanceLearning.discovered` distingue si la pregunta la propuso la IA o estaba escrita a mano.
+  El motor no lo mira (las dos familias se filtran igual, y esa uniformidad es lo que hace seguro
+  dejar proponer a un LLM) y el prompt tampoco lo serializa; existe solo para que la UI pueda decirlo,
+  porque una lección salida de una hipótesis inventada se juzga leyendo la hipótesis.
 - **Qué se persiste y qué no, a propósito:** se guardan las mediciones caras o irrecuperables —
   `video_stats` (métricas de YouTube), `video_dimension_labels` (una llamada al LLM por video, se
   cachea o cada visita a analíticas volvería a pagarla), `videos.edl`, `videos.exploration_plan`,

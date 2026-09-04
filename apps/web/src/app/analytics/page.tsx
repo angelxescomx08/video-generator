@@ -694,8 +694,10 @@ function LearningsSection({
           {learnings.map((learning) => (
             <ChartFrame
               key={learning.dimension}
-              title={learning.dimension}
-              description={`${learning.recommendation} Medido sobre ${learning.sampleSize} video(s) por ${learning.outcomeLabel}.`}
+              title={learning.discovered ? `${learning.dimension} (pregunta de la IA)` : learning.dimension}
+              description={`${learning.recommendation} Medido sobre ${learning.sampleSize} video(s) por ${learning.outcomeLabel}.${
+                learning.discovered ? " Esta pregunta no la escribio nadie: la propuso la IA leyendo tus guiones." : ""
+              }`}
               howToRead={{
                 measures: `Los videos se parten en grupos segun su ${learning.dimension}, y cada grupo se califica con su ${learning.outcomeLabel} media, PONDERADA por recencia: un video reciente mueve el promedio mas que uno viejo.`,
                 read: "La distancia entre la barra mas larga y la mas corta es la leccion. Al lado de cada barra va cuantos videos la sostienen: con 3 es una pista, con 20 es una regla. La columna 'Peso efectivo' de la tabla es cuantos videos valen esos videos una vez ponderados — si es mucho menor que la cuenta, el grupo se apoya casi solo en los mas recientes.",
@@ -725,6 +727,17 @@ function LearningsSection({
             </ChartFrame>
           ))}
         </div>
+      )}
+
+      {learnings.some((l) => l.discovered) && (
+        <p className="text-xs text-muted-foreground">
+          Las marcadas como <em>pregunta de la IA</em> salieron del descubrimiento de patrones, no de la
+          lista escrita a mano.{" "}
+          <Link href="/analytics/discoveries" className="underline">
+            Ver la hipotesis de cada una y que videos la sostienen
+          </Link>
+          .
+        </p>
       )}
 
       <CoverageSection coverage={coverage} />
