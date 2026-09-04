@@ -1,4 +1,4 @@
-import { db, dimensionDiscoveryRuns, learningDimensions } from "@video-generator/db";
+import { db, dimensionDiscoveryRuns, learningDimensions, type DiscoveryRunStatus } from "@video-generator/db";
 import { desc, eq } from "drizzle-orm";
 import { analyzeCoverage, loadDiscoveredDimensions, loadLearningSamples } from "./learnings";
 
@@ -119,4 +119,44 @@ export async function getDiscoveryEligibility(): Promise<DiscoveryEligibility> {
   }
 
   return { enabled: true, reason: null, unlockHint: null, usableSamples };
+}
+
+/**
+ * Estado de la ultima corrida de descubrimiento, para poder MOSTRAR que esta pasando.
+ *
+ * Es una consulta aparte y deliberadamente barata: `getDiscoveryEligibility` recalcula la muestra y
+ * la cobertura entera (es lo que decide si vale la pena gastar llamadas al LLM), y la UI necesita
+ * preguntar "¿sigue corriendo?" cada pocos segundos mientras dura el job. Sondear con la otra
+ * pondria el analisis completo del canal detras de un setInterval.
+ */
+export interface DiscoveryRunState {
+  id: string;
+  status: DiscoveryRunStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  proposedCount: number;
+  errorMessage: string | null;
+}
+
+export async function getLatestDiscoveryRun(): Promise<DiscoveryRunState | null> {
+  const [row] = await db
+    .select({
+      id: dimensionDiscoveryRuns.id,
+      status: dimensionDiscoveryRuns.status,
+      startedAt: dimensionDiscoveryRuns.startedAt,
+      finishedAt: dimensionDiscoveryRuns.finishedAt,
+      proposedCount: dimensionDiscoveryRuns.proposedCount,
+      errorMessage: dimensionDiscoveryRuns.errorMessage,
+    })
+    .from(dimensionDiscoveryRuns)
+    .orderBy(desc(dimensionDiscoveryRuns.startedAt))
+    .limit(1);
+
+  if (!row) return null;
+
+  return {
+    ...row,
+    startedAt: row.startedAt.toISOString(),
+    finishedAt: row.finishedAt?.toISOString() ?? null,
+  };
 }
