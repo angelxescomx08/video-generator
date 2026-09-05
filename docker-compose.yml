@@ -37,6 +37,18 @@ services:
     volumes:
       - tts-models:/data/models
 
+  # Metabuscador autohospedado: es lo que le da al sistema acceso a la web abierta para proponer
+  # temas, sin depender de la API de nadie ni de una API key. Ver packages/search-providers.
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "8888:8080"
+    volumes:
+      - ./docker/searxng:/etc/searxng
+    environment:
+      BASE_URL: http://localhost:8888/
+    restart: unless-stopped
+
   worker:
     build:
       context: .

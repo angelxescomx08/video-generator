@@ -43,6 +43,8 @@ No hay suite de tests todavía — al agregar una, preferir tests unitarios puro
 | Dibujar una gráfica nueva | `apps/web/src/components/charts/*` |
 | Cambiar los rangos o la agrupación temporal | `packages/analytics/src/time-range.ts` |
 | Tocar la UI | `apps/web/src/app/**` (App Router) y `apps/web/src/components/**` |
+| Cambiar de buscador web o agregar uno | `packages/search-providers/src/*.provider.ts` + su `registry.ts` |
+| Tocar como se proponen temas de video | `apps/worker/src/handlers/discover-topics.handler.ts` |
 | Variables de entorno | `packages/config/src/env.ts` (zod schema — agregar ahí antes de usar `process.env` en cualquier otro lado) |
 
 ## Convenciones del monorepo
@@ -162,6 +164,47 @@ nombres conocidos) ni los handlers del worker (llaman siempre a través del regi
   porque el gate de muestra efectiva se aplica por grupo y en tres partes ninguno llega. Su variante
   de exploracion es `durationBias` (`corto`/`largo`), que estrecha la banda a una de sus mitades —
   nunca sube el techo, porque el techo lo puso el usuario.
+- **Las dimensiones descubiertas se re-etiquetan solas; sin eso se congelaban.** El descubrimiento
+  etiqueta el canal UNA vez, el dia que nace la pregunta, y durante un tiempo nadie volvia a
+  etiquetar: las tres preguntas creadas el 1 de septiembre se quedaron en 19 videos mientras el canal
+  ya tenia 32, y una dimension que no crece su muestra no puede cambiar de veredicto nunca. Lo
+  arregla `labelMissingDimensions` (`apps/worker/src/learning/label-dimensions.ts`), que se dispara
+  al publicar, en un cron cada 6h y al terminar un descubrimiento. Es un BACKFILL sobre los pares
+  (video, dimension activa) sin respuesta, no un "etiquetar al publicar": asi el mismo mecanismo cubre
+  videos nuevos, dimensiones nuevas y etiquetas perdidas por un fallo del clasificador, y no hay
+  estado que se pueda desincronizar.
+- **El descubrimiento mira una VENTANA RECIENTE, no todo el historial** (`RECENT_WINDOW = 30` en
+  `discover-dimensions.handler.ts`). Sin ventana, "los 5 mejores y los 5 peores" se congelan a medida
+  que el canal crece: los mismos videos viejos ganan y pierden para siempre y lo que se publica hoy
+  nunca llega al prompt. El numero es el doble de `HALF_LIFE_MAX_VIDEOS`, la misma idea de ventana
+  movil que ya gobierna las lecciones. Se recorta ANTES de ordenar por rendimiento — al reves seria
+  "los mejores de siempre que ademas son recientes", que no es lo mismo.
+- **La busqueda web es un paquete propio, NO una herramienta del LLM** (`packages/search-providers`).
+  Si fuera un `tool` del modelo (el grounding de Gemini, por ejemplo), cambiar `AI_PROVIDER` a Ollama
+  apagaria la funcion entera. Aqui la busqueda ocurre antes de llamar al modelo y sus resultados
+  entran al prompt como texto, asi que funciona identico con los cuatro providers.
+- **Orden de preferencia de buscadores, y por que `searxng` no esta en el:** `tavily` (unica capa
+  gratuita real, 1.000/mes sin tarjeta) -> `brave` (cobra desde la primera consulta desde febrero de
+  2026) -> `wikipedia` (un solo sitio, pero es el unico que responde sin cuenta ni infraestructura, y
+  sin el la funcion nace muerta). SearXNG esta implementado y se levanta con `pnpm docker:up:search`,
+  pero solo se usa si se elige explicitamente: **se probo desde una IP domestica y los motores
+  upstream no bloquean, envenenan** — pedir "hallazgos arqueologicos de la Biblia" devolvio foros de
+  informatica y contenido NSFW de Reddit. Un buscador que responde basura es peor que uno que falla,
+  porque la basura llega al prompt sin que nada avise. En un servidor con IP limpia vuelve a ser la
+  mejor opcion.
+- **Quien decide si un tema propuesto ya se conto NO es el LLM, es la distancia coseno**
+  (`DUPLICATE_THRESHOLD = 0.82` en `discover-topics.handler.ts`). Preguntarle al modelo "¿ya hicimos
+  esto?" es pedirle que recuerde 30 guiones que nunca vio completos: contesta que no y se produce el
+  video repetido. El umbral esta calibrado con datos del canal, no a ojo: temas biblicos genuinamente
+  nuevos puntuan 0.71-0.76 contra el guion mas parecido, y una propuesta que ES un video ya hecho
+  puntua 0.84-0.93. El margen es estrecho, por eso la similitud se guarda en TODAS las propuestas
+  (tambien las que pasan) — es lo que permite mover el numero mirando datos. Se compara contra los
+  GUIONES y no contra los titulos: dos titulos distintos pueden esconder la misma historia.
+- `topic_proposals.duplicate` es un estado distinto de `rejected` a proposito: rechazado es un juicio
+  del usuario, duplicado es un hecho medido. Mezclarlos haria imposible distinguir "el detector
+  funciona" de "las ideas no gustan". Las descartadas se MUESTRAN en `/topics` por la misma razon:
+  sin verlas no hay forma de saber si el umbral esta tirando ideas buenas.
+
 - **Una escena es un plano**, así que `SECONDS_PER_SCENE` en `script-prompt.builder.ts` decide cada
   cuánto cambia la imagen — es la palanca de retención más barata del pipeline y por eso está
   separada por formato (`short: 5`, `long: 10`). Los cortes rápidos son una recomendación de formato

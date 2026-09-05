@@ -49,6 +49,16 @@ const envSchema = z.object({
 
   JAMENDO_CLIENT_ID: z.string().optional(),
 
+  /**
+   * Buscador web para proponer temas. Sin valor, el registry prueba en orden y usa el primero que
+   * tenga credenciales (searxng -> tavily -> brave).
+   */
+  SEARCH_PROVIDER: z.enum(["tavily", "brave", "wikipedia", "searxng"]).optional(),
+  /** URL del SearXNG autohospedado. El docker-compose lo levanta en este puerto. */
+  SEARXNG_URL: z.string().default("http://localhost:8888"),
+  TAVILY_API_KEY: z.string().optional(),
+  BRAVE_API_KEY: z.string().optional(),
+
   YOUTUBE_CLIENT_ID: z.string().optional(),
   YOUTUBE_CLIENT_SECRET: z.string().optional(),
   YOUTUBE_REDIRECT_URI: z.string().optional(),

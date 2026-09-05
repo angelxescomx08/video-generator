@@ -51,3 +51,15 @@ export async function enqueueDimensionDiscovery(): Promise<void> {
   const boss = await getBoss();
   await boss.send(QUEUES.DISCOVER_DIMENSIONS, {});
 }
+
+/**
+ * Dispara la busqueda de temas nuevos para UN tema del canal.
+ *
+ * Lleva payload (a diferencia del descubrimiento de dimensiones) porque cada tema busca cosas
+ * distintas: no existe una consulta que sirva para "biblia" y para "curiosidades de historia" a la
+ * vez, y mezclar las propuestas de dos temas en la misma bandeja las haria inaprobables.
+ */
+export async function enqueueTopicDiscovery(themeId: string, query?: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send(QUEUES.DISCOVER_TOPICS, { themeId, query });
+}

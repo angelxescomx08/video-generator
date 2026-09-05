@@ -91,6 +91,10 @@ export async function handlePublishVideo(payload: PublishJobPayload): Promise<vo
   await setVideoStatus(videoId, "published");
   const boss = await getBoss();
   await boss.send(QUEUES.POLL_STATS, { videoId });
+  // El video recien publicado tiene que entrar a las preguntas que ya estan abiertas. Sin esto solo
+  // se etiquetaria en el cron de las 6h, y una dimension solo puede cambiar de veredicto cuando su
+  // muestra crece — no cuando pasan los dias.
+  await boss.send(QUEUES.LABEL_DIMENSIONS, {});
 }
 
 function youtubeUrl(externalVideoId: string): string {

@@ -2,7 +2,7 @@ import { editDecisionListSchema, type EditDecisionList, type ProviderCost } from
 import { estimateAnthropicCost } from "./pricing";
 import { parseScriptResult } from "./script-result";
 import { buildScriptUserPrompt } from "./script-context";
-import { buildDimensionClassificationPrompt, buildDimensionProposalPrompt, MUSIC_SUGGESTION_INSTRUCTION, NotImplementedError, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION, type AICallResult, type DimensionClassificationRequest, type DimensionProposalRequest, type ProposedDimension, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
+import { buildDimensionClassificationPrompt, buildDimensionProposalPrompt, buildTopicProposalPrompt, type ProposedTopic, type TopicProposalRequest, MUSIC_SUGGESTION_INSTRUCTION, NotImplementedError, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION, type AICallResult, type DimensionClassificationRequest, type DimensionProposalRequest, type ProposedDimension, type AIProvider, type EDLGenerationRequest, type EmbeddingRequest, type ScriptGenerationRequest, type ScriptGenerationResult } from "./types";
 
 interface AnthropicProviderOptions {
   apiKey: string;
@@ -83,6 +83,11 @@ export class AnthropicProvider implements AIProvider {
       buildDimensionProposalPrompt(req),
     );
     return { result: (json as { proposals?: ProposedDimension[] }).proposals ?? [], cost };
+  }
+
+  async proposeTopics(req: TopicProposalRequest): Promise<AICallResult<ProposedTopic[]>> {
+    const { json, cost } = await this.messageJson("Eres el investigador de contenidos de un canal de YouTube. Propones ideas concretas apoyadas en fuentes, no categorias vagas.", buildTopicProposalPrompt(req));
+    return { result: (json as { proposals?: ProposedTopic[] }).proposals ?? [], cost };
   }
 
   async classifyDimension(req: DimensionClassificationRequest): Promise<AICallResult<string>> {

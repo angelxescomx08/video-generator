@@ -10,6 +10,17 @@ export const QUEUES = {
   POLL_STATS: "poll-stats",
   /** Descubrimiento de dimensiones nuevas: no toca ningun video, analiza el canal entero. */
   DISCOVER_DIMENSIONS: "discover-dimensions",
+  /**
+   * Etiqueta los videos que todavia no tienen respuesta para alguna dimension descubierta activa.
+   *
+   * Existe porque el descubrimiento etiqueta el canal UNA vez, cuando nace la pregunta: sin esta
+   * cola, los videos publicados despues nunca se clasifican y la dimension se queda congelada con
+   * la muestra que tenia el dia que se creo. Es idempotente (el unique de
+   * `video_dimension_labels` absorbe los reintentos), asi que se puede disparar de mas sin costo.
+   */
+  LABEL_DIMENSIONS: "label-dimensions",
+  /** Busca en la web y propone temas de video nuevos para un tema del canal. */
+  DISCOVER_TOPICS: "discover-topics",
 } as const;
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
@@ -30,3 +41,11 @@ export const pollStatsPayloadSchema = z.object({
   videoId: z.string().uuid().optional(),
 });
 export type PollStatsPayload = z.infer<typeof pollStatsPayloadSchema>;
+
+/** El descubrimiento de temas es por tema del canal: cada uno busca cosas distintas. */
+export const discoverTopicsPayloadSchema = z.object({
+  themeId: z.string().uuid(),
+  /** Consulta libre del usuario. Sin ella, se derivan consultas del propio tema. */
+  query: z.string().optional(),
+});
+export type DiscoverTopicsPayload = z.infer<typeof discoverTopicsPayloadSchema>;

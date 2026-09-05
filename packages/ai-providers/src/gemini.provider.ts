@@ -10,6 +10,9 @@ import {
   MUSIC_SUGGESTION_INSTRUCTION,
   SCENE_EFFECT_INSTRUCTION,
   VISUAL_KEYWORDS_INSTRUCTION,
+  buildTopicProposalPrompt,
+  type TopicProposalRequest,
+  type ProposedTopic,
 } from "./types";
 import type {
   AICallResult,
@@ -163,6 +166,30 @@ const DIMENSION_PROPOSAL_SCHEMA = {
   required: ["proposals"],
 } as const;
 
+/**
+ * Gemini REQUIERE `responseSchema` para devolver JSON con la forma pedida — `responseMimeType`
+ * por si solo da JSON, pero no este JSON. Misma trampa documentada en generateScript/generateEDL.
+ */
+const TOPIC_PROPOSAL_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    proposals: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          title: { type: "STRING" },
+          idea: { type: "STRING" },
+          angle: { type: "STRING" },
+          sourceUrls: { type: "ARRAY", items: { type: "STRING" } },
+        },
+        required: ["title", "idea", "angle", "sourceUrls"],
+      },
+    },
+  },
+  required: ["proposals"],
+} as const;
+
 /** Quita fences markdown (```json ... ```) que a veces envuelven la respuesta antes de parsear. */
 function parseJsonLenient(text: string): unknown {
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -285,6 +312,15 @@ export class GeminiProvider implements AIProvider {
     );
     const proposals = (json as { proposals?: ProposedDimension[] }).proposals ?? [];
     return { result: proposals, cost };
+  }
+
+  async proposeTopics(req: TopicProposalRequest): Promise<AICallResult<ProposedTopic[]>> {
+    const { json, cost } = await this.generateJson(
+      "Eres el investigador de contenidos de un canal de YouTube. Propones ideas concretas apoyadas en fuentes, no categorias vagas.",
+      buildTopicProposalPrompt(req),
+      TOPIC_PROPOSAL_SCHEMA,
+    );
+    return { result: (json as { proposals?: ProposedTopic[] }).proposals ?? [], cost };
   }
 
   async classifyDimension(req: DimensionClassificationRequest): Promise<AICallResult<string>> {

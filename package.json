@@ -10,6 +10,7 @@
     "start": "pnpm docker:up:deps && concurrently -n web,worker -c blue,green \"pnpm --filter web start\" \"pnpm --filter worker start\"",
     "docker:up": "docker compose up -d",
     "docker:up:deps": "docker compose up -d postgres ollama tts adminer",
+    "docker:up:search": "docker compose up -d searxng",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
     "db:generate": "pnpm --filter @video-generator/db db:generate",

@@ -171,6 +171,36 @@ export interface DimensionClassificationRequest {
   buckets: string[];
 }
 
+/** Un resultado de busqueda web, como se le muestra al modelo para que proponga temas. */
+export interface TopicResearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+  source: string;
+}
+
+export interface TopicProposalRequest {
+  /** Nombre y descripcion del tema del canal, para que las propuestas encajen en el. */
+  themeName: string;
+  themeDescription?: string;
+  /** Lo que se encontro en la web. Puede venir vacio si la busqueda fallo. */
+  sources: TopicResearchSource[];
+  /** Titulos de videos que el canal YA hizo, para no proponer lo mismo otra vez. */
+  alreadyCovered: string[];
+  maxProposals: number;
+}
+
+export interface ProposedTopic {
+  /** Titulo de trabajo de la idea, no el titulo final del video. */
+  title: string;
+  /** La idea desarrollada: es lo que acaba en `videos.topic` si se aprueba. */
+  idea: string;
+  /** Por que engancharia a alguien. Se guarda para poder juzgar la propuesta, no solo el resultado. */
+  angle: string;
+  /** URLs de `sources` en las que se apoya. Sirve para verificar antes de aprobar. */
+  sourceUrls: string[];
+}
+
 /** Instrucciones compartidas por todos los providers para el descubrimiento de dimensiones. */
 export const DIMENSION_PROPOSAL_INSTRUCTION =
   "Cada propuesta debe cumplir TODO esto, o no sirve:\n" +
@@ -207,6 +237,15 @@ export interface AIProvider {
   proposeDimensions(req: DimensionProposalRequest): Promise<AICallResult<ProposedDimension[]>>;
   /** Contesta una pregunta propuesta sobre UN guion, eligiendo uno de los buckets. */
   classifyDimension(req: DimensionClassificationRequest): Promise<AICallResult<string>>;
+  /**
+   * Propone temas de video a partir de lo que se encontro buscando en la web.
+   *
+   * La busqueda NO la hace el modelo: llega ya hecha en `req.sources`, desde
+   * `@video-generator/search-providers`. Por eso esto funciona igual en un provider sin soporte de
+   * herramientas (Ollama) que en uno con grounding nativo (Gemini) — el modelo solo redacta y
+   * selecciona sobre texto que ya tiene delante.
+   */
+  proposeTopics(req: TopicProposalRequest): Promise<AICallResult<ProposedTopic[]>>;
   embed(req: EmbeddingRequest): Promise<AICallResult<number[]>>;
   healthCheck(): Promise<boolean>;
   /**
@@ -238,6 +277,48 @@ Propon hasta ${req.maxProposals} PREGUNTAS nuevas sobre el contenido o la constr
 ${DIMENSION_PROPOSAL_INSTRUCTION}
 
 Responde JSON: { "proposals": [{ "label": string, "question": string, "buckets": string[], "rationale": string }] }`;
+}
+
+/**
+ * Prompt de propuesta de temas, compartido.
+ *
+ * Las reglas apuntan a un unico fallo: que el modelo devuelva el mismo tema de siempre con otro
+ * nombre. Un canal que lleva 30 videos ya conto lo evidente, asi que se le pasan los titulos ya
+ * hechos y se le pide explicitamente el angulo que NO se ha usado. El filtro real contra repetidos
+ * viene despues y es semantico (embeddings contra los guiones anteriores); esto solo evita gastar
+ * una propuesta en algo obvio.
+ */
+export function buildTopicProposalPrompt(req: TopicProposalRequest): string {
+  const sources = req.sources.length
+    ? req.sources.map((s, i) => `[${i + 1}] ${s.title} (${s.source})\n${s.url}\n${s.snippet}`).join("\n\n")
+    : "(la busqueda no devolvio resultados; propon desde tu propio conocimiento y deja sourceUrls vacio)";
+
+  const covered = req.alreadyCovered.length
+    ? req.alreadyCovered.map((t) => `- ${t}`).join("\n")
+    : "(el canal todavia no tiene videos)";
+
+  const about = req.themeDescription ? `\nDe que va el canal: ${req.themeDescription}` : "";
+
+  return `Eres el investigador de contenidos de un canal de YouTube sobre "${req.themeName}".${about}
+
+ESTO ES LO QUE SE ENCONTRO BUSCANDO EN LA WEB:
+
+${sources}
+
+VIDEOS QUE EL CANAL YA HIZO (no propongas nada que sea esto con otras palabras):
+${covered}
+
+Propon hasta ${req.maxProposals} ideas de video. Cada una debe cumplir TODO esto:
+- Apoyarse en lo que dicen las fuentes de arriba, no en algo que te suene. Cita en sourceUrls las URLs concretas que la sostienen.
+- Ser un tema CONCRETO, no una categoria. "El dia que Pedro nego a Jesus tres veces" sirve; "historias del Nuevo Testamento" no.
+- Traer un angulo que la gente no conozca ya: un detalle sorprendente, una contradiccion, un dato historico o arqueologico, algo que rete lo que se suele creer. Si la idea es la version de siempre de una historia conocida, no la propongas.
+- Ser distinta de los videos ya hechos y distinta de las otras propuestas de esta misma respuesta.
+- "idea": 3-5 frases con la historia y el material concreto (nombres, cifras, lugares, versiculos si aplica) que usaria el guionista. Es lo que se le va a pasar tal cual para escribir el guion, asi que tiene que bastarse solo.
+- "angle": UNA frase diciendo por que alguien se quedaria a verlo.
+
+Si las fuentes no dan para ${req.maxProposals} ideas buenas, devuelve menos. Una propuesta floja cuesta un video entero.
+
+Responde JSON: { "proposals": [{ "title": string, "idea": string, "angle": string, "sourceUrls": string[] }] }`;
 }
 
 /** Prompt de clasificacion, compartido por los cuatro providers. */

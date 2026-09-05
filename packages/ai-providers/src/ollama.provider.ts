@@ -3,7 +3,7 @@ import { ollamaCost } from "./pricing";
 import { parseScriptResult } from "./script-result";
 import { EMBEDDING_CHAR_BUDGETS, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
-import { buildDimensionClassificationPrompt, buildDimensionProposalPrompt, MUSIC_SUGGESTION_INSTRUCTION, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
+import { buildDimensionClassificationPrompt, buildDimensionProposalPrompt, buildTopicProposalPrompt, type ProposedTopic, type TopicProposalRequest, MUSIC_SUGGESTION_INSTRUCTION, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
   AICallResult,
   AIProvider,
@@ -132,6 +132,14 @@ ${EDL_JSON_INSTRUCTIONS}`;
     );
     return {
       result: (raw as { proposals?: ProposedDimension[] }).proposals ?? [],
+      cost: ollamaCost(this.options.model),
+    };
+  }
+
+  async proposeTopics(req: TopicProposalRequest): Promise<AICallResult<ProposedTopic[]>> {
+    const raw = await this.chatJson("Eres el investigador de contenidos de un canal de YouTube. Propones ideas concretas apoyadas en fuentes, no categorias vagas.", buildTopicProposalPrompt(req));
+    return {
+      result: (raw as { proposals?: ProposedTopic[] }).proposals ?? [],
       cost: ollamaCost(this.options.model),
     };
   }

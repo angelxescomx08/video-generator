@@ -12,10 +12,10 @@ import {
   db,
   dimensionDiscoveryRuns,
   learningDimensions,
-  videoDimensionLabels,
   videos,
 } from "@video-generator/db";
 import { eq, inArray } from "drizzle-orm";
+import { labelMissingDimensions, trimScript } from "../learning/label-dimensions";
 import { logger } from "../util/logger";
 
 /**
@@ -36,24 +36,20 @@ import { logger } from "../util/logger";
 /** Cuantas preguntas puede proponer por corrida. */
 const MAX_PROPOSALS = 3;
 
-/** Clasificaciones en vuelo a la vez. Ver el bucle en `classifyPublishedVideos`. */
-const CLASSIFY_CONCURRENCY = 5;
-
 /**
- * Recorte del guion que se le manda a la IA.
+ * Ventana de videos recientes de la que salen los extremos que lee la IA.
  *
- * Se acota porque son 10 guiones en un solo prompt y un video largo puede traer 1500 palabras cada
- * uno: sin tope, la propuesta se vuelve la llamada mas cara del sistema. Con el arranque y el cierre
- * alcanza para juzgar estructura, gancho y remate, que es de lo que salen las hipotesis utiles.
+ * Sin ventana, "los 5 mejores y los 5 peores" se calculaban sobre TODO el historial, asi que a
+ * medida que el canal crece los extremos se congelan: los mismos videos viejos ganan y pierden para
+ * siempre, y lo que se publica hoy nunca llega al prompt. El sistema acabaria explicando una y otra
+ * vez por que unos videos de hace meses rindieron distinto entre si.
+ *
+ * El numero es el doble del techo de vida media que usa la ponderacion por recencia
+ * (`HALF_LIFE_MAX_VIDEOS`, 15): la misma idea de "ventana movil" que ya gobierna las lecciones, con
+ * margen para que los dos extremos no se toquen. Si el canal tiene menos videos que esto, la ventana
+ * es todo el canal y no cambia nada.
  */
-const SCRIPT_CHAR_BUDGET = 1200;
-
-function trimScript(script: string): string {
-  if (script.length <= SCRIPT_CHAR_BUDGET) return script;
-  const head = Math.floor(SCRIPT_CHAR_BUDGET * 0.7);
-  const tail = SCRIPT_CHAR_BUDGET - head;
-  return `${script.slice(0, head)}\n[...]\n${script.slice(-tail)}`;
-}
+const RECENT_WINDOW = 30;
 
 /**
  * Una propuesta solo entra si esta bien formada. No es paranoia: el resto del motor asume que
@@ -108,10 +104,13 @@ export async function handleDiscoverDimensions(): Promise<void> {
 
 async function runDiscovery(samples: LearningSample[], slots: number): Promise<number> {
 
-  // Se ordena por el porcentaje del video visto porque es la metrica que califica el guion COMPLETO,
-  // que es lo que la IA va a leer. Ordenar por retencion inicial la haria buscar en todo el guion la
-  // explicacion de algo que se decide en los primeros tres segundos.
-  const scored = samples
+  // `samples` viene del mas reciente al mas viejo (ver loadLearningSamples), asi que cortar por la
+  // cabeza es quedarse con la ventana reciente. Se recorta ANTES de ordenar por rendimiento: lo que
+  // se le pide explicar es por que unos videos NUEVOS rinden distinto que otros videos nuevos.
+  const recent = samples.slice(0, RECENT_WINDOW);
+
+  // Se ordena por el porcentaje del video visto (califica el guion COMPLETO, que es lo que la IA lee).
+  const scored = recent
     .filter((s) => s.outcomes.avgViewPercentage !== undefined)
     .sort((a, b) => b.outcomes.avgViewPercentage! - a.outcomes.avgViewPercentage!);
 
@@ -162,66 +161,12 @@ async function runDiscovery(samples: LearningSample[], slots: number): Promise<n
 
   logger.info(`Dimensiones descubiertas: ${inserted.map((d) => d.label).join(", ")}`);
 
-  for (const dimension of inserted) {
-    const proposal = usable.find((p) => p.label.trim() === dimension.label)!;
-    await classifyPublishedVideos(dimension.id, proposal);
-  }
+  // Etiqueta el canal contra las preguntas recien creadas. Es el mismo backfill que corre al
+  // publicar y en el cron: mira los pares (video, dimension activa) sin respuesta, asi que de paso
+  // rellena cualquier etiqueta que faltara de una dimension anterior.
+  await labelMissingDimensions();
 
   return inserted.length;
-}
-
-/**
- * Etiqueta TODOS los videos ya publicados con la pregunta nueva.
- *
- * Sin esto la dimension nace sin datos y tardaria un canal entero en decir algo. Se hace una vez por
- * dimension y se guarda: el `unique(video, dimension)` de la tabla hace que reintentar el job no
- * duplique etiquetas ni vuelva a pagar. Un fallo de clasificacion solo deja ese video sin etiqueta,
- * que el motor ya sabe tratar como "fuera de esta dimension".
- */
-async function classifyPublishedVideos(dimensionId: string, proposal: ProposedDimension): Promise<void> {
-  const provider = await resolveProvider();
-  const rows = await db
-    .select({ id: videos.id, script: videos.script })
-    .from(videos)
-    .where(inArray(videos.status, ["published", "ready"]));
-
-  const pending = rows.filter((row) => row.script);
-  let labeled = 0;
-
-  // En tandas y no de una en una: son cientos de llamadas independientes entre si (una por video por
-  // dimension) y hacerlas en fila convertia el boton en varios minutos de espera. El tamano de tanda
-  // es chico a proposito — el limite real aqui es el rate limit del proveedor, no la CPU.
-  for (let i = 0; i < pending.length; i += CLASSIFY_CONCURRENCY) {
-    const batch = pending.slice(i, i + CLASSIFY_CONCURRENCY);
-    const results = await Promise.all(
-      batch.map(async (row) => {
-        try {
-          const { result: bucket } = await provider.classifyDimension({
-            script: trimScript(row.script!),
-            question: proposal.question,
-            buckets: proposal.buckets,
-          });
-          // Un bucket inventado no se guarda: dejaria un grupo de un solo video que ensucia la
-          // comparacion sin aportar nada.
-          return proposal.buckets.includes(bucket) ? { videoId: row.id, bucket } : null;
-        } catch (err) {
-          logger.warn(`No se pudo clasificar el video ${row.id}`, { error: (err as Error).message });
-          return null;
-        }
-      }),
-    );
-
-    const toInsert = results.filter((r): r is { videoId: string; bucket: string } => r !== null);
-    if (toInsert.length > 0) {
-      await db
-        .insert(videoDimensionLabels)
-        .values(toInsert.map((r) => ({ videoId: r.videoId, dimensionId, bucket: r.bucket })))
-        .onConflictDoNothing();
-      labeled += toInsert.length;
-    }
-  }
-
-  logger.info(`Dimension ${dimensionId}: ${labeled}/${pending.length} videos etiquetados`);
 }
 
 /** Lo que el motor ya mide, en lenguaje natural, para que la IA no proponga algo que ya existe. */

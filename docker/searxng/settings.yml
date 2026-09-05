@@ -1,0 +1,61 @@
+# SearXNG para el descubrimiento de temas.
+#
+# Dos cosas se apartan del default de la imagen, y las dos por un motivo medido:
+#
+# 1. `formats` incluye json. SearXNG responde HTML salvo que se habilite explicitamente, y sin esto
+#    el provider recibe una pagina web donde espera un objeto y falla con un 403 que no explica nada.
+#
+# 2. La lista de motores esta curada. Los motores por defecto de SearXNG asumen que corre en un
+#    servidor con reputacion; desde una IP domestica, Google, DuckDuckGo, Startpage, Brave y Mojeek
+#    contestan CAPTCHA o "access denied" en la PRIMERA consulta, y una busqueda con todos activados
+#    devuelve cero resultados mientras espera a los que nunca van a responder. Se dejan los que se
+#    comprobaron respondiendo desde aqui.
+#
+# Si en algun momento una busqueda vuelve vacia, esta lista es el primer sitio donde mirar: los
+# motores cambian de politica y lo que hoy responde puede empezar a bloquear.
+use_default_settings: true
+
+server:
+  # Cualquier valor sirve mientras sea estable entre reinicios; solo firma las cookies de sesion.
+  secret_key: "video-generator-local-searxng"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json
+  # Sin esto, la respuesta espera al motor mas lento y los bloqueados agotan el tiempo entero.
+  default_lang: "es"
+
+outgoing:
+  request_timeout: 5.0
+  max_request_timeout: 8.0
+
+engines:
+  # --- Los que responden desde una IP domestica ---
+  - name: bing
+    disabled: false
+  - name: presearch
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: wikidata
+    disabled: false
+
+  # --- Los que bloquean: apagados para que no vacien la respuesta ni la retrasen ---
+  - name: google
+    disabled: true
+  - name: duckduckgo
+    disabled: true
+  - name: startpage
+    disabled: true
+  - name: brave
+    disabled: true
+  - name: mojeek
+    disabled: true
+  - name: qwant
+    disabled: true
+  - name: yahoo
+    disabled: true

@@ -85,6 +85,13 @@
       "when": 1788238423245,
       "tag": "0011_common_salo",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788576547449,
+      "tag": "0012_keen_abomination",
+      "breakpoints": true
     }
   ]
 }

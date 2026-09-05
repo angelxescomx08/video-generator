@@ -9,7 +9,7 @@ import { estimateOpenAiCost } from "./pricing";
 import { parseScriptResult } from "./script-result";
 import { EMBEDDING_CHAR_BUDGETS, truncateForEmbedding } from "./embedding-input";
 import { buildScriptUserPrompt } from "./script-context";
-import { buildDimensionClassificationPrompt, buildDimensionProposalPrompt, MUSIC_SUGGESTION_INSTRUCTION, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
+import { buildDimensionClassificationPrompt, buildDimensionProposalPrompt, buildTopicProposalPrompt, type ProposedTopic, type TopicProposalRequest, MUSIC_SUGGESTION_INSTRUCTION, SCENE_EFFECT_INSTRUCTION, VISUAL_KEYWORDS_INSTRUCTION } from "./types";
 import type {
   AICallResult,
   AIProvider,
@@ -187,6 +187,32 @@ const DIMENSION_PROPOSAL_JSON_SCHEMA: JsonSchemaSpec = {
   },
 };
 
+
+const TOPIC_PROPOSAL_JSON_SCHEMA: JsonSchemaSpec = {
+  name: "topic_proposals",
+  schema: {
+    type: "object",
+    properties: {
+      proposals: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            idea: { type: "string" },
+            angle: { type: "string" },
+            sourceUrls: { type: "array", items: { type: "string" } },
+          },
+          required: ["title", "idea", "angle", "sourceUrls"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["proposals"],
+    additionalProperties: false,
+  },
+};
+
 /**
  * Quita las claves con valor null, recursivamente.
  *
@@ -317,6 +343,15 @@ export class OpenAIProvider implements AIProvider {
       DIMENSION_PROPOSAL_JSON_SCHEMA,
     );
     return { result: (json as { proposals?: ProposedDimension[] }).proposals ?? [], cost };
+  }
+
+  async proposeTopics(req: TopicProposalRequest): Promise<AICallResult<ProposedTopic[]>> {
+    const { json, cost } = await this.chatJson(
+      "Eres el investigador de contenidos de un canal de YouTube. Propones ideas concretas apoyadas en fuentes, no categorias vagas.",
+      buildTopicProposalPrompt(req),
+      TOPIC_PROPOSAL_JSON_SCHEMA,
+    );
+    return { result: (json as { proposals?: ProposedTopic[] }).proposals ?? [], cost };
   }
 
   async classifyDimension(req: DimensionClassificationRequest): Promise<AICallResult<string>> {

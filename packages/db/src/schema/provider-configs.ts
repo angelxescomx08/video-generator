@@ -6,7 +6,7 @@ import { boolean, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-c
  * `video_memory.embedding`. Aun asi, no hace falta configurarlo: si no hay fila de `embedding`, se
  * usa el proveedor de `ai` seleccionado — ver resolveEmbeddingProvider().
  */
-export const PROVIDER_TYPES = ["ai", "embedding", "tts", "stock", "social", "music"] as const;
+export const PROVIDER_TYPES = ["ai", "embedding", "tts", "stock", "social", "music", "search"] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 export const providerConfigs = pgTable("provider_configs", {
