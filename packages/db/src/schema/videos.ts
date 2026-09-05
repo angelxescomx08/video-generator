@@ -30,7 +30,14 @@ export const videos = pgTable(
     topic: text("topic"),
     /** Subtitulos quemados en el video. Desactivados por defecto (ver edl.captions.enabled). */
     captionsEnabled: boolean("captions_enabled").notNull().default(false),
-    /** Duracion objetivo del guion en segundos (la elige el usuario). Si es null, el builder usa el default por formato. */
+    /**
+     * TECHO de duracion del guion en segundos, elegido por el usuario — no un objetivo exacto.
+     *
+     * El video puede salir mas corto (hasta el piso que deriva `resolveDurationBand` a partir de
+     * este numero y del formato) pero no mas largo; el nombre conserva "target" porque es tambien el
+     * tiempo de referencia que se escribio, y renombrar la columna no cambiaria nada del calculo.
+     * Si es null, el builder usa el default del formato.
+     */
     targetDurationSeconds: integer("target_duration_seconds"),
     title: text("title"),
     description: text("description"),

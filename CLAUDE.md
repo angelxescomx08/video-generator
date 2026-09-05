@@ -144,6 +144,24 @@ nombres conocidos) ni los handlers del worker (llaman siempre a través del regi
 - `edl.generatedBy` (`"ai" | "fallback"`) marca quién decidió el montaje. Es el canario de lo
   anterior: si empieza a salir `"fallback"` en la UI o en los logs, la generación de EDL está rota,
   no es un detalle cosmético — significa que el video se montó sin decisiones editoriales.
+- **La duracion es una BANDA `[minimo, maximo]`, no un objetivo, y lo que escribe el usuario es el
+  TECHO.** Antes se pedia un numero y el presupuesto de palabras se armaba ±10% alrededor, asi que el
+  limite real quedaba POR ENCIMA de lo pedido: con 90s pedidos los videos del canal salieron entre 72s
+  y 99s. Ahora `resolveDurationBand` (en `packages/types/src/duration.ts`) deriva el piso del techo
+  (`MIN_RATIO = 0.75`, nunca por debajo del minimo del formato) y `computeWordBudget` traduce la banda
+  a palabras sin margen extra. Los limites por formato salen de la plataforma y de las referencias de
+  retencion: Shorts `15-180s` (180 es el maximo de YouTube desde octubre 2024; 15 es un piso
+  EDITORIAL, por debajo no cabe gancho + desarrollo + pago), largos `60-1800s`. Sigue pudiendo
+  desbordar el techo por unos segundos porque `WORDS_PER_MINUTE` es una estimacion del ritmo del TTS,
+  no una medicion — eso es esperado, lo que desaparecio es el 10% que se regalaba a proposito.
+- **Con techo fijo, la dimension de duracion en segundos absolutos NO puede aprender.** Los 32
+  primeros videos del canal duraron entre 61s y 99s y caian los 32 en el mismo bucket. La dimension
+  que si mide una decision real es `aprovechamiento de la duracion` (`durationFillRatio` =
+  duracion real / techo pedido, corte en 0.92): responde "con el MISMO tiempo disponible, ¿retiene
+  mas llenarlo o cerrar antes?" y parte la muestra historica 16/16. Va con dos buckets y no tres
+  porque el gate de muestra efectiva se aplica por grupo y en tres partes ninguno llega. Su variante
+  de exploracion es `durationBias` (`corto`/`largo`), que estrecha la banda a una de sus mitades —
+  nunca sube el techo, porque el techo lo puso el usuario.
 - **Una escena es un plano**, así que `SECONDS_PER_SCENE` en `script-prompt.builder.ts` decide cada
   cuánto cambia la imagen — es la palanca de retención más barata del pipeline y por eso está
   separada por formato (`short: 5`, `long: 10`). Los cortes rápidos son una recomendación de formato

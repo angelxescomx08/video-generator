@@ -14,6 +14,18 @@ import type { EditDecisionList, ScriptScene } from "@video-generator/types";
 export interface VideoAttributes {
   format: "long" | "short";
   durationSeconds: number | null;
+  /** El techo de duracion que se pidio al crear el video. `null` en videos anteriores al campo. */
+  targetDurationSeconds: number | null;
+  /**
+   * Que fraccion del techo pedido ocupo el video (1.0 = lo lleno justo, 0.8 = se quedo a un 20%).
+   *
+   * Existe porque la duracion en segundos absolutos no distingue nada en un canal que pide siempre
+   * el mismo techo: los 32 primeros videos duraron entre 61s y 99s y caian TODOS en el mismo grupo,
+   * asi que la dimension de duracion no podia aprender nunca. El ratio si varia (0.80 a 1.10 en esos
+   * mismos videos) porque mide una decision real del guion — cuanto del tiempo disponible se uso —
+   * y no el numero que escribio el usuario.
+   */
+  durationFillRatio: number | null;
   sceneCount: number;
   avgSceneSeconds: number | null;
   wordCount: number;
@@ -97,12 +109,18 @@ export function extractVideoAttributes(video: Video): VideoAttributes {
   const hookText = hookWords.length > 0 ? hookWords.join(" ") : null;
 
   const durationSeconds = video.durationSeconds ?? edl?.totalDurationSeconds ?? null;
+  const targetDurationSeconds = video.targetDurationSeconds ?? null;
   const sceneCount = edl?.scenes.length ?? scenes.length;
   const effectsUsed = unique((edl?.scenes ?? []).map((s) => s.effect.type));
 
   return {
     format: video.format,
     durationSeconds,
+    targetDurationSeconds,
+    durationFillRatio:
+      durationSeconds !== null && targetDurationSeconds !== null && targetDurationSeconds > 0
+        ? durationSeconds / targetDurationSeconds
+        : null,
     sceneCount,
     avgSceneSeconds: durationSeconds && sceneCount > 0 ? durationSeconds / sceneCount : null,
     wordCount: words.length,
@@ -133,6 +151,7 @@ export function describeVideoAttributes(attrs: VideoAttributes): string {
   const parts = [
     `formato=${attrs.format}`,
     attrs.durationSeconds ? `duracion=${Math.round(attrs.durationSeconds)}s` : null,
+    attrs.durationFillRatio ? `uso del tiempo=${Math.round(attrs.durationFillRatio * 100)}% del techo` : null,
     `escenas=${attrs.sceneCount}`,
     attrs.wordsPerSecond ? `ritmo=${attrs.wordsPerSecond.toFixed(2)} palabras/s` : null,
     `gancho=${attrs.hookIsQuestion ? "pregunta" : "afirmacion"}`,

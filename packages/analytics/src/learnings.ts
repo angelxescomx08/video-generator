@@ -200,15 +200,42 @@ const DIMENSIONS: readonly AttributeDimension[] = [
     },
   },
   {
+    // Duracion en segundos absolutos. Los cortes siguen las referencias de retencion para formato
+    // corto (el punto dulce cae en 30-45s y la banda corta util en 15-30s), no numeros redondos.
+    //
+    // OJO con lo que esta dimension puede y no puede aprender: solo se mueve si el usuario PIDE
+    // duraciones distintas. Con el techo siempre en 90s los 32 primeros videos del canal cayeron los
+    // 32 en el mismo grupo, y una dimension con un solo grupo no espera muestra: no puede aprender
+    // nunca. La que si mide una decision del pipeline con techo fijo es "aprovechamiento de la
+    // duracion", justo debajo.
     label: "duracion",
     outcome: "avgViewPercentage",
     outcomeLabel: "porcentaje del video visto",
     bucket: (a) => {
       if (a.durationSeconds === null) return null;
       if (a.durationSeconds <= 30) return "hasta 30s";
-      if (a.durationSeconds <= 60) return "31-60s";
-      if (a.durationSeconds <= 120) return "61-120s";
-      return "mas de 120s";
+      if (a.durationSeconds <= 45) return "31-45s";
+      if (a.durationSeconds <= 60) return "46-60s";
+      if (a.durationSeconds <= 90) return "61-90s";
+      return "mas de 90s";
+    },
+  },
+  {
+    // La pregunta que la duracion absoluta no puede responder: con el MISMO tiempo disponible,
+    // ¿retiene mas llenarlo o cerrar antes? Agrupa por fraccion del techo pedido, asi que compara
+    // videos de 90s de techo con videos de 60s de techo sin que la comparacion se vaya al numero
+    // que escribio el usuario.
+    //
+    // Dos grupos y no tres a proposito: el gate de muestra efectiva se aplica por grupo, y en un
+    // canal chico partir en tres deja los tres por debajo del minimo y no sale ninguna leccion.
+    // El corte en 0.92 no es arbitrario — parte por la mitad la distribucion real del canal
+    // (16 videos de cada lado sobre los 32 primeros).
+    label: "aprovechamiento de la duracion",
+    outcome: "avgViewPercentage",
+    outcomeLabel: "porcentaje del video visto",
+    bucket: (a) => {
+      if (a.durationFillRatio === null) return null;
+      return a.durationFillRatio >= 0.92 ? "cerca del techo pedido" : "bastante por debajo del techo";
     },
   },
   {

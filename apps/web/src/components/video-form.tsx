@@ -7,7 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { sanitizePromptText, diffText, type SanitizedPrompt } from "@video-generator/types";
+import {
+  DURATION_LIMITS,
+  clampDurationToLimits,
+  diffText,
+  resolveDurationBand,
+  sanitizePromptText,
+  type SanitizedPrompt,
+} from "@video-generator/types";
 
 export function VideoForm({ themes }: { themes: { id: string; name: string }[] }) {
   const router = useRouter();
@@ -19,9 +26,12 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
   // Texto tal cual estaba en el textarea justo antes de limpiar, para poder mostrar el diff.
   const [preClean, setPreClean] = useState("");
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
-  const [durationSeconds, setDurationSeconds] = useState(90);
+  const [durationSeconds, setDurationSeconds] = useState<number>(DURATION_LIMITS.short.default);
   const idea = topic.trim();
-  const maxDuration = format === "short" ? 180 : 1800;
+  const limits = DURATION_LIMITS[format];
+  // Lo que se escribe aqui es el TECHO; el piso lo deriva el formato. Se muestra la banda completa
+  // para que quede claro que el video puede salir mas corto sin que eso sea un fallo.
+  const band = resolveDurationBand(format, durationSeconds);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +67,7 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
           format,
           topic: cleaned.text || undefined,
           captionsEnabled,
-          targetDurationSeconds: Math.min(Math.max(durationSeconds, 10), maxDuration),
+          targetDurationSeconds: clampDurationToLimits(format, durationSeconds),
         }),
       });
       if (!response.ok) throw new Error((await response.json()).error ?? "Error al crear el video");
@@ -85,27 +95,45 @@ export function VideoForm({ themes }: { themes: { id: string; name: string }[] }
 
       <div className="space-y-2">
         <Label htmlFor="format">Formato</Label>
-        <Select id="format" value={format} onChange={(e) => setFormat(e.target.value as "long" | "short")}>
+        <Select
+          id="format"
+          value={format}
+          onChange={(e) => {
+            const next = e.target.value as "long" | "short";
+            setFormat(next);
+            // Los limites dependen del formato: sin esto, cambiar a "video largo" con 20s puesto
+            // dejaria el input y la banda mostrando cosas distintas hasta que el usuario lo tocara.
+            setDurationSeconds((seconds) => clampDurationToLimits(next, seconds));
+          }}
+        >
           <option value="short">Short</option>
           <option value="long">Video largo</option>
         </Select>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="duration">Duracion objetivo (segundos)</Label>
+        <Label htmlFor="duration">Duracion maxima (segundos)</Label>
         <Input
           id="duration"
           type="number"
-          min={10}
-          max={maxDuration}
+          min={limits.min}
+          max={limits.max}
           step={5}
           value={durationSeconds}
           onChange={(e) => setDurationSeconds(Number(e.target.value))}
         />
         <p className="text-xs text-muted-foreground">
+          Es un techo, no un tiempo exacto: el video saldra{" "}
+          <span className="font-medium text-foreground">
+            entre {band.minSeconds}s y {band.maxSeconds}s
+          </span>
+          . Puede desbordar el techo por un par de segundos porque la duracion se estima a partir de
+          las palabras del guion, y el ritmo real de la voz varia.
+        </p>
+        <p className="text-xs text-muted-foreground">
           {format === "short"
-            ? "Un Short puede durar hasta 180s (3 min). Aprovecha el tiempo para contar la historia completa."
-            : "Recomendado 180-600s para desarrollar bien el tema."}
+            ? `Permitido ${limits.min}-${limits.max}s. YouTube admite Shorts de hasta 3 minutos, pero las referencias de retencion ubican el punto dulce en 30-45s.`
+            : `Permitido ${limits.min}-${limits.max}s. Recomendado 180-600s para desarrollar bien el tema.`}
         </p>
       </div>
 

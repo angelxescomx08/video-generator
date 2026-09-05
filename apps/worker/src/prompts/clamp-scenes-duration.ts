@@ -1,5 +1,4 @@
-import type { ScriptScene } from "@video-generator/types";
-import { WORDS_PER_MINUTE } from "./script-prompt.builder";
+import { WORDS_PER_MINUTE, type ScriptScene } from "@video-generator/types";
 
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -22,8 +21,14 @@ function truncateAtSentence(text: string, maxWords: number): string {
 /**
  * Red de seguridad determinista (sin llamar de nuevo al LLM): si el guion generado se paso del
  * presupuesto de palabras a pesar de la instruccion del prompt, recorta las escenas proporcionalmente
- * para que la duracion narrada real no se dispare muy por encima del target (p.ej. pedir 140s y
+ * para que la duracion narrada real no se dispare muy por encima del techo (p.ej. pedir 140s y
  * recibir un guion que narraria 211s). Recorta por oracion completa, nunca a la mitad de una frase.
+ *
+ * `maxWords` es ahora exactamente lo que cabe en el techo, sin el 10% de margen que tenia antes, asi
+ * que este recorte se dispara mas seguido que en la version anterior. Es lo esperado: es la unica
+ * garantia dura de que el video no se pase de lo pedido, y el prompt ya avisa que cruzarlo corta la
+ * historia. Lo que puede seguir desbordando por unos segundos es la conversion palabras->segundos,
+ * que es una estimacion del ritmo del TTS, no una medicion.
  */
 export function clampScenesToWordBudget(scenes: ScriptScene[], maxWords: number): ScriptScene[] {
   const totalWords = scenes.reduce((sum, s) => sum + countWords(s.narrationText), 0);

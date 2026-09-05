@@ -1,13 +1,13 @@
 import { resolveProvider } from "@video-generator/ai-providers";
 import { db, FACT_TYPES, generationHistory, themes, videos, type FactType } from "@video-generator/db";
 import { getBoss, QUEUES, videoJobPayloadSchema, type VideoJobPayload } from "@video-generator/queue";
-import type { CostItem } from "@video-generator/types";
+import { computeWordBudget, resolveDurationBand, type CostItem } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import { storeMemory } from "../memory/embed";
 import { runStage, setVideoStatus } from "../pipeline/orchestrator";
 import { STAGES } from "../pipeline/stage-context";
 import { clampScenesToWordBudget } from "../prompts/clamp-scenes-duration";
-import { buildScriptGenerationRequest, computeWordBudget } from "../prompts/script-prompt.builder";
+import { buildScriptGenerationRequest } from "../prompts/script-prompt.builder";
 import { logger } from "../util/logger";
 
 export async function handleGenerateScript(payload: VideoJobPayload): Promise<void> {
@@ -28,7 +28,7 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
 
     // Red de seguridad sin costo de tokens extra: si el LLM ignoro el limite de palabras del
     // prompt, recorta las escenas aqui mismo en vez de pedirle al LLM que lo intente de nuevo.
-    const { maxWords } = computeWordBudget(request.targetDurationSeconds);
+    const { maxWords } = computeWordBudget(resolveDurationBand(video.format, video.targetDurationSeconds));
     const scenes = clampScenesToWordBudget(result.scenes, maxWords);
     if (scenes !== result.scenes) {
       logger.warn(`Guion recortado por exceder el presupuesto de palabras para video ${videoId}`, {

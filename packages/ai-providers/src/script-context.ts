@@ -18,7 +18,7 @@ export function buildScriptUserPrompt(req: ScriptGenerationRequest, jsonInstruct
 
 Tema: ${req.themeSlug}
 Formato: ${req.format}
-Duracion objetivo: ${req.targetDurationSeconds}s
+Duracion maxima permitida: ${req.maxDurationSeconds}s (es un techo, no un objetivo: el rango valido esta en DURACION Y EXTENSION)
 Idea / topico especifico (base del guion): ${req.topic ?? "elige uno apropiado"}
 
 Memoria de generaciones pasadas relevantes:

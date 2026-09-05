@@ -50,7 +50,12 @@ export interface ScriptGenerationRequest {
   userPromptTemplate: string;
   topic?: string;
   format: "long" | "short";
-  targetDurationSeconds: number;
+  /**
+   * TECHO de duracion en segundos, no un objetivo: el guion es correcto en cualquier punto entre el
+   * piso que fija el `styleGuide` y este numero. El rango concreto (y la conversion a palabras) va
+   * en el bloque DURACION del `styleGuide`; aqui viaja solo el limite duro.
+   */
+  maxDurationSeconds: number;
   memoryContext: MemoryContextItem[];
   avoidFacts: string[];
   recentFeedback: FeedbackSummary[];

@@ -1,17 +1,25 @@
 import { db, feedback } from "@video-generator/db";
 import type { ScriptGenerationRequest } from "@video-generator/ai-providers";
 import type { Theme, Video } from "@video-generator/db";
-import type { ProviderCost } from "@video-generator/types";
+import {
+  computeWordBudget,
+  resolveDurationBand,
+  WORDS_PER_MINUTE,
+  type DurationBand,
+  type ProviderCost,
+} from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import { getAvoidFacts, getRecentFeedback, retrieveMemoryContext } from "../memory/retrieve";
 import { getLearningsReport } from "@video-generator/analytics";
-import { buildExplorationBlock, chooseExploration, type ExplorationChoice } from "./exploration";
+import {
+  buildExplorationBlock,
+  chooseExploration,
+  type ExplorationChoice,
+  type PipelineExperimentPlan,
+} from "./exploration";
 import { logger } from "../util/logger";
 
 const REPEATABLE_FACT_TYPES = ["bible_verse_used", "quote_used", "title_used"] as const;
-
-/** Palabras por minuto de narracion en espanol (ritmo natural, ni lento ni atropellado). */
-export const WORDS_PER_MINUTE = 150;
 
 export async function buildScriptGenerationRequest(
   theme: Theme,
@@ -31,7 +39,8 @@ export async function buildScriptGenerationRequest(
     resolveRegenerationInstruction(video.pendingFeedbackId),
   ]);
 
-  const targetDurationSeconds = video.targetDurationSeconds ?? (video.format === "short" ? 90 : 300);
+  // Lo que el usuario escribio es el TECHO; el piso lo deriva el formato (ver `resolveDurationBand`).
+  const band = resolveDurationBand(video.format, video.targetDurationSeconds);
 
   // Una regeneracion nace de feedback concreto del usuario sobre ESTE video: meterle encima un
   // experimento le cambiaria el gancho por razones que no tienen nada que ver con lo que pidio.
@@ -51,7 +60,7 @@ export async function buildScriptGenerationRequest(
       userPromptTemplate: theme.scriptPromptTemplate,
       topic: video.topic ?? undefined,
       format: video.format,
-      targetDurationSeconds,
+      maxDurationSeconds: band.maxSeconds,
       memoryContext: memory.items,
       avoidFacts,
       recentFeedback,
@@ -60,7 +69,7 @@ export async function buildScriptGenerationRequest(
       // El experimento va al final del styleGuide, despues del tono: es una excepcion puntual a esa
       // guia y tiene que leerse despues de ella para que gane.
       styleGuide: [
-        buildStyleGuide(targetDurationSeconds, video.format, exploration?.plan?.secondsPerScene),
+        buildStyleGuide(band, video.format, exploration?.plan),
         exploration ? buildExplorationBlock(exploration) : null,
       ]
         .filter(Boolean)
@@ -73,25 +82,15 @@ export async function buildScriptGenerationRequest(
   };
 }
 
-/** Rango de palabras aceptable para un guion, dado el target en segundos. Comparten esta formula
- * el prompt (buildStyleGuide) y el recorte deterministico post-generacion (clampScenesToWordBudget)
- * para que ambos midan "se paso" con el mismo criterio. */
-export function computeWordBudget(targetDurationSeconds: number): { targetWords: number; minWords: number; maxWords: number } {
-  const targetWords = Math.round((targetDurationSeconds / 60) * WORDS_PER_MINUTE);
-  return {
-    targetWords,
-    minWords: Math.round(targetWords * 0.9),
-    maxWords: Math.round(targetWords * 1.1),
-  };
-}
-
 /**
- * Guia de tono/estilo + refuerzo de duracion. El refuerzo de duracion es clave: sin un objetivo de
+ * Guia de tono/estilo + refuerzo de duracion. El refuerzo de duracion es clave: sin un rango de
  * palabras/escenas explicito, el LLM tiende a devolver guiones demasiado cortos y superficiales
  * (p.ej. 28s cuando se pidieron 90) o, si se le pide mucho, a pasarse de largo (p.ej. 211s cuando se
- * pidieron 140). Convertimos los segundos objetivo en un rango de palabras y de escenas concreto, y
- * remarcamos que pasarse del maximo es tan incorrecto como quedarse corto (hay un recorte automatico
- * despues si no se respeta, que corta la historia de forma abrupta).
+ * pidieron 140). Convertimos la banda de segundos en un rango de palabras y de escenas concreto.
+ *
+ * La asimetria es deliberada y es todo el punto de la banda: quedarse corto dentro del piso es una
+ * duracion valida, pasarse del techo no lo es. Por eso las dos mitades del rango no se redactan
+ * igual — el minimo se pide, el maximo se prohibe cruzar.
  */
 /**
  * Segundos de narracion por escena — y como una escena es un plano con su propio clip, esto decide
@@ -111,18 +110,22 @@ export function computeWordBudget(targetDurationSeconds: number): { targetWords:
 const SECONDS_PER_SCENE = { short: 5, long: 10 } as const;
 
 function buildStyleGuide(
-  targetDurationSeconds: number,
+  band: DurationBand,
   format: "long" | "short",
-  /** Override del experimento de "ritmo de corte"; sin el, manda `SECONDS_PER_SCENE`. */
-  secondsPerSceneOverride?: number,
+  /** Desviaciones del experimento asignado a este video, si lleva uno. */
+  plan?: PipelineExperimentPlan,
 ): string {
-  const { minWords, maxWords } = computeWordBudget(targetDurationSeconds);
-  const secondsPerScene = secondsPerSceneOverride ?? SECONDS_PER_SCENE[format];
-  const sceneCount = Math.max(3, Math.round(targetDurationSeconds / secondsPerScene));
+  const aimed = aimWithinBand(band, plan?.durationBias);
+  const { minWords, maxWords } = computeWordBudget(aimed);
+  const secondsPerScene = plan?.secondsPerScene ?? SECONDS_PER_SCENE[format];
+  // El numero de escenas sale del centro de la banda y no del techo: pedir las escenas del maximo y
+  // las palabras del rango dejaria las ultimas escenas casi vacias si el guion sale por el lado corto.
+  const sceneCount = Math.max(3, Math.round((aimed.minSeconds + aimed.maxSeconds) / 2 / secondsPerScene));
 
   const durationBlock = `DURACION Y EXTENSION (obligatorio, se valida automaticamente):
-- El guion debe durar aproximadamente ${targetDurationSeconds} segundos al narrarse en voz alta.
-- A ~${WORDS_PER_MINUTE} palabras/minuto, eso equivale a ENTRE ${minWords} Y ${maxWords} palabras de narracion en total (suma de todas las escenas). Este es un rango estricto: pasarte de ${maxWords} palabras es tan incorrecto como quedarte corto de ${minWords} — si te pasas, el sistema recorta el guion automaticamente y corta la historia a la mitad, así que cuenta tus palabras mientras escribes.
+- El guion debe durar ENTRE ${aimed.minSeconds} Y ${aimed.maxSeconds} segundos al narrarse en voz alta. Cualquier duracion dentro de ese rango es correcta: no tienes que clavar un numero exacto.
+- ${aimed.maxSeconds} segundos es un TECHO, no una meta. Pasarte es el unico error grave de duracion que existe aqui, porque el sistema recorta el guion automaticamente y la historia se queda cortada a la mitad.
+- A ~${WORDS_PER_MINUTE} palabras/minuto, ese rango equivale a ENTRE ${minWords} Y ${maxWords} palabras de narracion en total (suma de todas las escenas). Cuenta tus palabras mientras escribes y no cruces ${maxWords}.
 - Divide la narracion en unas ${sceneCount} escenas de ~${secondsPerScene}s cada una${
     format === "short"
       ? " — cada escena es un plano distinto, y si el plano no cambia el espectador se va"
@@ -132,9 +135,28 @@ function buildStyleGuide(
       ? ", es decir UNA sola idea o frase por escena"
       : ", con espacio para desarrollar la idea dentro de cada una"
   }, cada una con su narrationText.
-- Con ese presupuesto de palabras, cuenta una historia completa pero compacta: ve directo al punto en cada escena, sin relleno ni descripciones largas. Prioriza que quepan planteamiento, desarrollo y cierre dentro del limite antes que desarrollar cada parte a fondo.`;
+- Con ese presupuesto de palabras, cuenta una historia completa pero compacta: ve directo al punto en cada escena, sin relleno ni descripciones largas. Prioriza que quepan planteamiento, desarrollo y cierre dentro del limite antes que desarrollar cada parte a fondo. Es preferible cerrar bien la historia en ${aimed.minSeconds} segundos que estirarla para llegar a ${aimed.maxSeconds}.`;
 
-  return `${SCRIPT_TONE_GUIDE}\n\n${durationBlock}\n\n${buildSeoGuide(format)}`;
+  return `${SCRIPT_TONE_GUIDE}
+
+${durationBlock}
+
+${buildSeoGuide(format)}`;
+}
+
+/**
+ * Estrecha la banda a su mitad corta o a su mitad larga cuando el video lleva un experimento de
+ * duracion; sin experimento se pide la banda completa.
+ *
+ * Se estrecha en vez de mover el techo porque el techo lo puso el usuario: un experimento puede
+ * decidir apuntar mas corto, nunca autorizarse a durar mas de lo que se pidio.
+ */
+function aimWithinBand(band: DurationBand, bias: "corto" | "largo" | undefined): DurationBand {
+  if (!bias) return band;
+  const mid = Math.round((band.minSeconds + band.maxSeconds) / 2);
+  return bias === "corto"
+    ? { minSeconds: band.minSeconds, maxSeconds: mid }
+    : { minSeconds: mid, maxSeconds: band.maxSeconds };
 }
 
 /**
@@ -159,7 +181,7 @@ const SCRIPT_TONE_GUIDE = `TONO Y ESTILO (obligatorio):
 - Escribe como si lo hablaras en voz alta a UNA sola persona, en segunda persona ("tu"), con tono conversacional, cercano y natural. Usa contracciones, voz activa y frases cortas: ninguna oracion debe pasar de ~15 palabras; si pasa, dividela. Prohibido sonar formal, corporativo o de "modo presentacion".
 - Empieza con un gancho en los primeros 3 segundos: salta directo a la accion, a la afirmacion mas fuerte o a una pregunta que genere curiosidad. Nunca abras con saludos ("Hola a todos, bienvenidos...") ni con "Hoy vamos a hablar de...". El gancho debe prometer valor o retar una creencia comun y conectar con la emocion por la que alguien haria clic.
 - Estructura la historia para retener: abre un loop (una pregunta o cliffhanger sin resolver) al inicio y cierralo al final. Usa logica de "pero / por lo tanto" (causa-efecto), no "y luego... y luego". Sube las apuestas por etapas y mete un giro o cambio de ritmo cada 45-90 segundos. Genera tension antes de cada payoff.
-- Aprovecha TODA la duracion objetivo para contar una historia completa (planteamiento, desarrollo con obstaculos, climax y resolucion); no estires 30 segundos de contenido ni rellenes. Revela el contexto sobre la marcha, con accion, no en un bloque de exposicion inicial.
+- Cuenta una historia COMPLETA (planteamiento, desarrollo con obstaculos, climax y resolucion) dentro del rango de duracion que se te da mas abajo. No estires 30 segundos de contenido para llenar tiempo ni rellenes: si la historia cierra bien antes del maximo, cierrala ahi. Revela el contexto sobre la marcha, con accion, no en un bloque de exposicion inicial.
 - Elimina relleno y muletillas ("ademas", "cabe destacar", "en conclusion", "es importante notar"). Cada frase debe avanzar la historia.
 - Cierra pagando la promesa del gancho y termina con un solo CTA claro y natural, ligado al valor que acabas de entregar.`;
 

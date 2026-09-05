@@ -68,6 +68,14 @@ export interface PipelineExperimentPlan {
   hookEffect?: "none" | "ken_burns";
   /** Segundos de narracion por escena, en vez de `SECONDS_PER_SCENE`. Cambia cuantos cortes hay. */
   secondsPerScene?: number;
+  /**
+   * A que mitad de la banda de duracion apuntar: `corto` estrecha el rango al piso, `largo` al techo.
+   *
+   * Nunca sube el techo — ese lo puso el usuario. Lo unico que hace es dejar de pedir "cualquier
+   * punto de la banda" para pedir un extremo concreto, que es lo que fabrica los dos grupos que la
+   * dimension de aprovechamiento necesita comparar.
+   */
+  durationBias?: "corto" | "largo";
 }
 
 export interface ExplorationChoice {
@@ -100,6 +108,20 @@ const PIPELINE_VARIANTS: Record<string, Record<string, { plan: PipelineExperimen
     "gancho sin golpe visual": {
       plan: { hookEffect: "none" },
       describes: "abrir con el plano quieto",
+    },
+  },
+  // El techo de duracion lo elige el usuario y suele ser siempre el mismo (los primeros 32 videos
+  // del canal pidieron 90s salvo uno), asi que sin empujon todos los guiones se escriben apuntando
+  // al mismo sitio de la banda y la dimension nace muerta. Apuntar a un extremo concreto es la unica
+  // forma de que existan los dos grupos, y es gratis: las dos duraciones son validas para el usuario.
+  "aprovechamiento de la duracion": {
+    "cerca del techo pedido": {
+      plan: { durationBias: "corto" },
+      describes: "cerrar la historia bastante antes del tiempo maximo permitido",
+    },
+    "bastante por debajo del techo": {
+      plan: { durationBias: "largo" },
+      describes: "aprovechar casi todo el tiempo maximo permitido",
     },
   },
   "ritmo de corte": {
