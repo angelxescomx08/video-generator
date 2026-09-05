@@ -11,7 +11,8 @@
     "@video-generator/config": "workspace:*",
     "@video-generator/db": "workspace:*",
     "@video-generator/types": "workspace:*",
-    "drizzle-orm": "^0.36.4"
+    "drizzle-orm": "^0.36.4",
+    "playwright": "^1.49.0"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

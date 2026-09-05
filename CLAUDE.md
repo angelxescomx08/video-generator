@@ -183,15 +183,25 @@ nombres conocidos) ni los handlers del worker (llaman siempre a través del regi
   Si fuera un `tool` del modelo (el grounding de Gemini, por ejemplo), cambiar `AI_PROVIDER` a Ollama
   apagaria la funcion entera. Aqui la busqueda ocurre antes de llamar al modelo y sus resultados
   entran al prompt como texto, asi que funciona identico con los cuatro providers.
-- **Orden de preferencia de buscadores, y por que `searxng` no esta en el:** `tavily` (unica capa
-  gratuita real, 1.000/mes sin tarjeta) -> `brave` (cobra desde la primera consulta desde febrero de
-  2026) -> `wikipedia` (un solo sitio, pero es el unico que responde sin cuenta ni infraestructura, y
-  sin el la funcion nace muerta). SearXNG esta implementado y se levanta con `pnpm docker:up:search`,
-  pero solo se usa si se elige explicitamente: **se probo desde una IP domestica y los motores
-  upstream no bloquean, envenenan** — pedir "hallazgos arqueologicos de la Biblia" devolvio foros de
-  informatica y contenido NSFW de Reddit. Un buscador que responde basura es peor que uno que falla,
-  porque la basura llega al prompt sin que nada avise. En un servidor con IP limpia vuelve a ser la
-  mejor opcion.
+- **Orden de preferencia de buscadores, y por que cada uno esta donde esta:** `tavily` (unica capa
+  gratuita real, 1.000/mes sin tarjeta; la opcion si esto corre a menudo) -> `playwright` (web
+  abierta de verdad SIN cuenta, manejando un navegador real) -> `brave` (cobra desde la primera
+  consulta desde febrero de 2026) -> `wikipedia` (un solo sitio, pero responde siempre y sin
+  instalar nada; la red que evita que la funcion nazca muerta).
+- **`playwright` existe porque `searxng` no sirvio, y la diferencia entre los dos es la lección.**
+  Los dos raspan el mismo buscador. SearXNG pide las paginas con HTTP plano —sin motor de JS, sin
+  huella TLS de navegador, sin cookies— y los buscadores lo detectan al instante: no bloquean,
+  **envenenan**. Pedirle "hallazgos arqueologicos de la Biblia" devolvia foros de informatica y
+  contenido NSFW de Reddit. Un buscador que responde basura es peor que uno que falla, porque la
+  basura llega al prompt sin que nada avise. Con un Chromium/Edge real contra el MISMO Bing, la misma
+  consulta devuelve National Geographic. SearXNG sigue implementado porque en un servidor con IP
+  limpia vuelve a ser buena opcion, pero esta fuera de la cadena automatica.
+- **El provider de Playwright lanza si no encuentra `li.b_algo`, en vez de devolver lista vacia.**
+  Depende del HTML de Bing y ese HTML va a cambiar: un fallo ruidoso se arregla, uno silencioso se
+  convierte en "la IA ya no propone nada bueno" descubierto tres semanas tarde. Usa Bing y no Google
+  ni DuckDuckGo por medicion: Google es el mas agresivo contra automatizacion, DuckDuckGo aborto la
+  conexion y Brave devolvio CAPTCHA hasta con navegador real. Y usa el Edge/Chrome del sistema antes
+  que el Chromium propio para no descargar 150MB en una maquina que ya los tiene.
 - **Quien decide si un tema propuesto ya se conto NO es el LLM, es la distancia coseno**
   (`DUPLICATE_THRESHOLD = 0.82` en `discover-topics.handler.ts`). Preguntarle al modelo "¿ya hicimos
   esto?" es pedirle que recuerde 30 guiones que nunca vio completos: contesta que no y se produce el

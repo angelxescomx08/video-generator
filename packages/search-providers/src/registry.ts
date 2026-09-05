@@ -2,12 +2,13 @@ import { loadEnv } from "@video-generator/config";
 import { db, providerConfigs } from "@video-generator/db";
 import { and, eq } from "drizzle-orm";
 import { BraveProvider } from "./brave.provider";
+import { PlaywrightProvider } from "./playwright.provider";
 import { SearxngProvider } from "./searxng.provider";
 import { WikipediaProvider } from "./wikipedia.provider";
 import { TavilyProvider } from "./tavily.provider";
 import type { WebSearchProvider } from "./types";
 
-export type SearchProviderName = "tavily" | "brave" | "wikipedia" | "searxng";
+export type SearchProviderName = "tavily" | "playwright" | "brave" | "wikipedia" | "searxng";
 
 /**
  * Buscadores que se prueban solos cuando no hay ninguno elegido, en orden.
@@ -15,24 +16,28 @@ export type SearchProviderName = "tavily" | "brave" | "wikipedia" | "searxng";
  * El orden NO es por calidad de indice, es por lo que de verdad funciona — medido contra este
  * entorno, no supuesto:
  *
- * - `tavily` primero: unico con capa gratuita real (1.000/mes, sin tarjeta) y respuestas limpias.
- * - `brave` segundo: buen indice propio, pero desde febrero de 2026 cobra desde la primera consulta.
- * - `wikipedia` ultimo: un solo sitio, que es justo lo que este paquete existe para evitar, pero es
- *   el unico que responde sin cuenta ni infraestructura. Sin el, un usuario sin API key se queda sin
- *   la funcion entera.
+ * - `tavily` primero: capa gratuita real (1.000/mes, sin tarjeta), rapido y con el contenido ya
+ *   limpio. Es lo unico que se recomienda si esto va a correr a menudo.
+ * - `playwright` segundo: web abierta de verdad SIN cuenta ni API key, manejando un navegador real.
+ *   Va por debajo de Tavily solo porque tarda segundos y depende del HTML de Bing, no porque busque
+ *   peor. Es la mejor opcion para quien no quiere darse de alta en nada.
+ * - `brave` tercero: buen indice propio, pero desde febrero de 2026 cobra desde la primera consulta.
+ * - `wikipedia` ultimo: un solo sitio, que es justo lo que este paquete existe para evitar, pero
+ *   responde siempre y sin nada instalado. Es la red que evita quedarse sin la funcion entera.
  *
  * `searxng` NO esta en esta lista y solo se usa si se elige explicitamente. No es por gusto: se
- * probo, y desde una IP domestica los motores upstream no solo bloquean, sino que devuelven
- * resultados SENUELO — pedir "hallazgos arqueologicos de la Biblia" contesto con foros de
- * informatica y con contenido NSFW de Reddit. Un buscador que responde basura es peor que uno que
- * falla, porque la basura llega al prompt sin que nada avise. En un servidor con IP limpia vuelve a
- * ser la mejor opcion, y por eso sigue implementado.
+ * probo, y desde una IP domestica los motores upstream no bloquean, ENVENENAN — pedir "hallazgos
+ * arqueologicos de la Biblia" devolvio foros de informatica y contenido NSFW de Reddit. La causa es
+ * que pide las paginas con HTTP plano y se le nota; `playwright` resuelve exactamente eso usando un
+ * navegador real contra el mismo buscador. En un servidor con IP limpia SearXNG vuelve a ser buena
+ * opcion, y por eso sigue implementado.
  */
-const AUTO_PREFERENCE: readonly SearchProviderName[] = ["tavily", "brave", "wikipedia"];
+const AUTO_PREFERENCE: readonly SearchProviderName[] = ["tavily", "playwright", "brave", "wikipedia"];
 
 /** Todos los nombres validos, para la UI de proveedores. */
 export const SEARCH_PROVIDER_NAMES: readonly SearchProviderName[] = [
   "tavily",
+  "playwright",
   "brave",
   "wikipedia",
   "searxng",
@@ -50,6 +55,10 @@ function instantiate(name: SearchProviderName): WebSearchProvider {
     case "brave":
       if (!env.BRAVE_API_KEY) throw new Error("BRAVE_API_KEY no esta configurada");
       return new BraveProvider({ apiKey: env.BRAVE_API_KEY });
+    case "playwright":
+      // No comprueba credenciales porque no tiene: lo que puede faltarle es un navegador, y eso se
+      // sabe al lanzarlo, no al construirlo.
+      return new PlaywrightProvider({ channel: env.PLAYWRIGHT_BROWSER_CHANNEL });
     case "wikipedia":
       // Sin credenciales que comprobar: por eso es el ultimo escalon que nunca falla.
       return new WikipediaProvider();

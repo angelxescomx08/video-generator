@@ -53,10 +53,16 @@ const envSchema = z.object({
    * Buscador web para proponer temas. Sin valor, el registry prueba en orden y usa el primero que
    * tenga credenciales (searxng -> tavily -> brave).
    */
-  SEARCH_PROVIDER: z.enum(["tavily", "brave", "wikipedia", "searxng"]).optional(),
+  SEARCH_PROVIDER: z.enum(["tavily", "playwright", "brave", "wikipedia", "searxng"]).optional(),
   /** URL del SearXNG autohospedado. El docker-compose lo levanta en este puerto. */
   SEARXNG_URL: z.string().default("http://localhost:8888"),
   TAVILY_API_KEY: z.string().optional(),
+  /**
+   * Navegador que usa el buscador de Playwright. Vacio = prueba Edge, luego Chrome, luego el
+   * Chromium propio de Playwright. En Windows los dos primeros ya estan instalados, asi que dejarlo
+   * vacio no descarga nada; dentro del contenedor del worker no hay ninguno y hace falta el propio.
+   */
+  PLAYWRIGHT_BROWSER_CHANNEL: z.string().optional(),
   BRAVE_API_KEY: z.string().optional(),
 
   YOUTUBE_CLIENT_ID: z.string().optional(),

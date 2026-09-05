@@ -4,3 +4,4 @@ export * from "./searxng.provider";
 export * from "./tavily.provider";
 export * from "./brave.provider";
 export * from "./wikipedia.provider";
+export * from "./playwright.provider";
