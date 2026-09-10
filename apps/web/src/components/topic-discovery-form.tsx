@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ export function TopicDiscoveryForm({ themes }: { themes: { id: string; name: str
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queued, setQueued] = useState(false);
+  const pollTimer = useRef<number | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,9 +37,16 @@ export function TopicDiscoveryForm({ themes }: { themes: { id: string; name: str
       });
       if (!response.ok) throw new Error((await response.json()).error ?? "No se pudo lanzar la busqueda");
       setQueued(true);
-      // El worker tarda: buscar + proponer + un embedding por idea. Se refresca despues para que las
-      // propuestas aparezcan solas en vez de dejar al usuario recargando a mano.
-      setTimeout(() => router.refresh(), 12000);
+      const startedAt = Date.now();
+      const stop = () => { if (pollTimer.current !== null) window.clearInterval(pollTimer.current); pollTimer.current = null; };
+      const check = async () => {
+        const proposals = await fetch("/api/topics", { cache: "no-store" }).then((r) => r.ok ? r.json() : []);
+        const completed = proposals.some((proposal: { themeId: string; createdAt: string }) => proposal.themeId === themeId && new Date(proposal.createdAt).getTime() >= startedAt - 1_000);
+        if (completed) { stop(); setQueued(false); router.refresh(); }
+      };
+      pollTimer.current = window.setInterval(() => void check(), 1_500);
+      window.setTimeout(stop, 60_000);
+      void check();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
@@ -96,3 +104,4 @@ export function TopicDiscoveryForm({ themes }: { themes: { id: string; name: str
     </form>
   );
 }
+

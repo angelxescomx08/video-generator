@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/videos/new", label: "Nuevo video" },
   { href: "/themes", label: "Temas" },
+  { href: "/topics", label: "Ideas" },
   { href: "/music", label: "Musica" },
   { href: "/analytics", label: "Analytics" },
   { href: "/analytics/discoveries", label: "Descubrimientos" },
@@ -45,3 +46,4 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
+
