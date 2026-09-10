@@ -32,6 +32,8 @@ ${renderFeedback(req)}
 
 ${renderPerformanceLearnings(req)}
 
+${renderPlaybookRules(req)}
+
 ${req.styleGuide ?? ""}
 
 ${jsonInstruction}`;
@@ -77,4 +79,13 @@ function renderPerformanceLearnings(req: ScriptGenerationRequest): string {
 ${lines}
 
 Aplica estos patrones al escribir el guion. Son observaciones de rendimiento real, asi que tienen prioridad sobre tus preferencias de estilo por defecto — pero fijate en el numero de videos de cada uno: con pocos videos el patron es una pista, no una regla, y nunca justifica romper la coherencia del tema o la calidad de la historia.`;
+}
+
+function renderPlaybookRules(req: ScriptGenerationRequest): string {
+  const rules = req.playbookRules ?? [];
+  if (rules.length === 0) return "";
+  return `REGLAS CONFIRMADAS PARA ESTE VIDEO (aplican por formato/tema y se pueden retirar):
+${rules.map((rule) => `- ${rule.instruction} [${rule.evidence.metric}: ${rule.evidence.effectPoints >= 0 ? "+" : ""}${rule.evidence.effectPoints} pp; ${rule.evidence.sampleSize} videos]`).join("\n")}
+
+Aplica estas reglas sin inventar datos ni convertir una interpretacion en cita biblica.`;
 }

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/analytics", label: "Rendimiento" },
   { href: "/analytics/discoveries", label: "Descubrimientos" },
+  { href: "/analytics/playbook", label: "Playbook" },
   { href: "/analytics/costs", label: "Costos" },
 ];
 
@@ -40,3 +41,4 @@ export function AnalyticsTabs() {
     </nav>
   );
 }
+

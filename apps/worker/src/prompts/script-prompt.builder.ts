@@ -10,7 +10,7 @@ import {
 } from "@video-generator/types";
 import { eq } from "drizzle-orm";
 import { getAvoidFacts, getRecentFeedback, retrieveMemoryContext } from "../memory/retrieve";
-import { getLearningsReport } from "@video-generator/analytics";
+import { getApplicablePlaybookRules, getLearningsReport } from "@video-generator/analytics";
 import {
   buildExplorationBlock,
   chooseExploration,
@@ -27,7 +27,7 @@ export async function buildScriptGenerationRequest(
 ): Promise<{ request: ScriptGenerationRequest; exploration: ExplorationChoice | null; cost: ProviderCost }> {
   const queryText = `${theme.name} ${video.topic ?? ""}`.trim();
 
-  const [memory, avoidFacts, recentFeedback, learningsReport, regenerationInstruction] = await Promise.all([
+  const [memory, avoidFacts, recentFeedback, learningsReport, playbookRules, regenerationInstruction] = await Promise.all([
     retrieveMemoryContext(theme.id, queryText),
     getAvoidFacts(theme.id, [...REPEATABLE_FACT_TYPES]),
     getRecentFeedback(theme.id),
@@ -36,6 +36,7 @@ export async function buildScriptGenerationRequest(
     // Se pide el reporte completo (lecciones + diagnostico) porque las dos mitades del bucle salen
     // de ahi: lo aprendido se explota, y lo que no se pudo aprender se explora.
     getLearningsReport(),
+    getApplicablePlaybookRules({ themeId: theme.id, format: video.format, targetDurationSeconds: video.targetDurationSeconds ?? (video.format === "short" ? 60 : 300) }),
     resolveRegenerationInstruction(video.pendingFeedbackId),
   ]);
 
@@ -65,6 +66,7 @@ export async function buildScriptGenerationRequest(
       avoidFacts,
       recentFeedback,
       performanceLearnings: learningsReport.learnings,
+      playbookRules,
       regenerationInstruction,
       // El experimento va al final del styleGuide, despues del tono: es una excepcion puntual a esa
       // guia y tiene que leerse despues de ella para que gane.
@@ -190,3 +192,5 @@ async function resolveRegenerationInstruction(pendingFeedbackId: string | null):
   const row = await db.query.feedback.findFirst({ where: eq(feedback.id, pendingFeedbackId) });
   return row?.comment ?? undefined;
 }
+
+

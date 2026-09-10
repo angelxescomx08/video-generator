@@ -1,4 +1,4 @@
-import { db, feedback, platformAccounts, publishedVideos, videoStats, videos } from "@video-generator/db";
+import { db, feedback, platformAccounts, publishedVideos, statsSyncRuns, videoStats, videos } from "@video-generator/db";
 import { pollStatsPayloadSchema, type PollStatsPayload } from "@video-generator/queue";
 import { resolveSocialProvider } from "@video-generator/social-providers";
 import type {
@@ -7,15 +7,21 @@ import type {
   StatsSnapshot,
 } from "@video-generator/social-providers";
 import { MIN_DAYS_FOR_LEARNING, MIN_VIEWS_FOR_LEARNING } from "@video-generator/types";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { describeVideoAttributes, extractVideoAttributes } from "@video-generator/analytics";
 import { resolveAccessToken } from "../social/access-token";
 import { logger } from "../util/logger";
 
 export async function handlePollStats(payload: PollStatsPayload): Promise<void> {
-  const { videoId } = pollStatsPayloadSchema.parse(payload);
+  const { videoId, publishedVideoId, syncRunId } = pollStatsPayloadSchema.parse(payload);
 
-  const rows = videoId
+  const rows = publishedVideoId
+    ? await db
+        .select()
+        .from(publishedVideos)
+        .innerJoin(platformAccounts, eq(publishedVideos.platformAccountId, platformAccounts.id))
+        .where(eq(publishedVideos.id, publishedVideoId))
+    : videoId
     ? await db
         .select()
         .from(publishedVideos)
@@ -31,6 +37,7 @@ export async function handlePollStats(payload: PollStatsPayload): Promise<void> 
     const published = row.published_videos;
     const account = row.platform_accounts;
 
+    let succeeded = false;
     try {
       const provider = resolveSocialProvider(account.platform as "youtube" | "facebook");
       // Refresca el token si esta por vencer: los de Google duran una hora, asi que sin esto el poll
@@ -83,12 +90,15 @@ export async function handlePollStats(payload: PollStatsPayload): Promise<void> 
 
       await maybeDeriveFeedbackFromStats(published.videoId, snapshot, videoAgeDays);
 
+      succeeded = true;
       logger.info(`Stats polled for published video ${published.id}`, {
         views: snapshot.views,
         hasRetentionCurve: Boolean(snapshot.retentionCurve),
       });
     } catch (err) {
       logger.warn(`Failed to poll stats for published video ${published.id}`, { error: (err as Error).message });
+    } finally {
+      if (syncRunId) await recordSyncProgress(syncRunId, succeeded);
     }
   }
 }
@@ -122,7 +132,7 @@ async function maybeDeriveFeedbackFromStats(
   const video = await db.query.videos.findFirst({ where: eq(videos.id, videoId) });
   if (!video) return;
 
-  const baseline = await channelBaseline();
+  const baseline = await channelBaselineCached();
   if (baseline === null) return;
 
   const delta = outcome - baseline;
@@ -145,6 +155,15 @@ async function maybeDeriveFeedbackFromStats(
   });
 }
 
+/** A short cache prevents a four-job sync batch from repeatedly scanning the full stats history. */
+let baselineCache: { value: number | null; expiresAt: number } | null = null;
+async function channelBaselineCached(): Promise<number | null> {
+  const now = Date.now();
+  if (baselineCache && baselineCache.expiresAt > now) return baselineCache.value;
+  const value = await channelBaseline();
+  baselineCache = { value, expiresAt: now + 60_000 };
+  return value;
+}
 /**
  * Promedio de retencion del canal COMPLETO, no del tema. Es el cambio central de este feedback loop:
  * comparar contra el propio tema hace que cada tema se mida contra si mismo y nunca se detecte que un
@@ -239,3 +258,25 @@ function toNumber(value: string | null): number | undefined {
 function numericOrNull(value: number | undefined): string | null {
   return value === undefined ? null : value.toString();
 }
+
+/** Increments a durable run after every link, including provider failures that the poll tolerates. */
+async function recordSyncProgress(syncRunId: string, succeeded: boolean): Promise<void> {
+  const [run] = await db
+    .update(statsSyncRuns)
+    .set({
+      status: "active",
+      startedAt: sql`coalesce(${statsSyncRuns.startedAt}, now())`,
+      completedCount: sql`${statsSyncRuns.completedCount} + ${succeeded ? 1 : 0}`,
+      failedCount: sql`${statsSyncRuns.failedCount} + ${succeeded ? 0 : 1}`,
+    })
+    .where(eq(statsSyncRuns.id, syncRunId))
+    .returning();
+  if (!run) return;
+  const finished = run.completedCount + run.failedCount >= run.totalCount;
+  if (finished) {
+    await db.update(statsSyncRuns).set({ status: "completed", completedAt: new Date() }).where(eq(statsSyncRuns.id, syncRunId));
+  }
+}
+
+
+

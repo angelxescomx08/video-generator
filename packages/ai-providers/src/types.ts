@@ -62,6 +62,8 @@ export interface ScriptGenerationRequest {
   /** Patrones de rendimiento medidos en TODO el canal (ver PerformanceLearning). Opcional: llega
    * vacio mientras no haya suficientes videos publicados con estadisticas. */
   performanceLearnings?: PerformanceLearning[];
+  /** Scoped, reversible rules promoted only after measured evidence. */
+  playbookRules?: Array<{ instruction: string; evidence: { metric: string; effectPoints: number; sampleSize: number; guardrailsPassed: boolean } }>;
   /** Instruccion puntual del feedback que disparo esta regeneracion (p.ej. "hazlo mas largo") — se debe priorizar sobre el resto del contexto. */
   regenerationInstruction?: string;
   /** Guia de tono/estilo + refuerzo de duracion (numero de palabras/escenas). La arma el builder; todos los providers la deben incluir en el prompt. */
@@ -333,3 +335,4 @@ ${req.script}
 
 Responde JSON: { "bucket": "<una de las opciones, copiada literal>" }`;
 }
+

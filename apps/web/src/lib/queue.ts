@@ -63,3 +63,11 @@ export async function enqueueTopicDiscovery(themeId: string, query?: string): Pr
   const boss = await getBoss();
   await boss.send(QUEUES.DISCOVER_TOPICS, { themeId, query });
 }
+
+/** Enqueues one independently observable poll per linked video for a durable progress bar. */
+export async function enqueueStatsSyncRun(syncRunId: string, publishedVideoIds: string[]): Promise<void> {
+  const boss = await getBoss();
+  await Promise.all(
+    publishedVideoIds.map((publishedVideoId) => boss.send(QUEUES.POLL_STATS, { publishedVideoId, syncRunId })),
+  );
+}

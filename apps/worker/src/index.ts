@@ -13,13 +13,23 @@ import { handleRenderVideo } from "./handlers/render-video.handler";
 import { logger } from "./util/logger";
 
 /** pg-boss delivers jobs in batches (default size 1) — process each job's payload in turn. */
-function perJob<T>(handler: (data: T) => Promise<void>) {
+function perJob<T>(handler: (data: T) => Promise<void>, concurrency = 1) {
   return async (jobs: Job<T>[]) => {
-    for (const job of jobs) {
-      await handler(job.data);
-    }
+    // pg-boss delivers a batch. A bounded pool preserves provider rate limits while avoiding
+    // the old one-video-at-a-time bottleneck for independently linked YouTube videos.
+    const pending = [...jobs];
+    const workers = Array.from({ length: Math.min(concurrency, pending.length) }, async () => {
+      while (pending.length > 0) {
+        const job = pending.shift();
+        if (job) await handler(job.data);
+      }
+    });
+    await Promise.all(workers);
   };
 }
+
+const STATS_SYNC_CONCURRENCY = 4;
+const FAST_POLL_OPTIONS = { batchSize: STATS_SYNC_CONCURRENCY, newJobCheckIntervalSeconds: 1 } as const;
 
 async function main() {
   const boss = await getBoss();
@@ -30,7 +40,7 @@ async function main() {
   await boss.work(QUEUES.BUILD_EDL, perJob(handleBuildEdl));
   await boss.work(QUEUES.RENDER_VIDEO, perJob(handleRenderVideo));
   await boss.work(QUEUES.PUBLISH_VIDEO, perJob(handlePublishVideo));
-  await boss.work(QUEUES.POLL_STATS, perJob(handlePollStats));
+  await boss.work(QUEUES.POLL_STATS, FAST_POLL_OPTIONS, perJob(handlePollStats, STATS_SYNC_CONCURRENCY));
   // No lleva payload: analiza el canal entero, no un video. Se dispara solo a mano desde
   // /analytics — proponer dimensiones cuesta llamadas al LLM y no gana nada corriendo en automatico
   // sobre una muestra que casi no cambio desde la vez anterior.
@@ -56,3 +66,4 @@ main().catch((err) => {
   logger.error("Worker failed to start", { error: err instanceof Error ? err.message : String(err) });
   process.exit(1);
 });
+

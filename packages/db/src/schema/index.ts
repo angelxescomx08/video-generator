@@ -14,3 +14,5 @@ export * from "./music-tracks";
 export * from "./learning-dimensions";
 export * from "./dimension-discovery-runs";
 export * from "./topic-proposals";
+export * from "./stats-sync-runs";
+export * from "./learning-experiments";

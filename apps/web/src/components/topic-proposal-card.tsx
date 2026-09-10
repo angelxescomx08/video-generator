@@ -79,15 +79,12 @@ export function TopicProposalCard({ proposal }: { proposal: TopicProposalView })
           <ul className="space-y-1 text-xs text-muted-foreground">
             {proposal.sources.map((s) => (
               <li key={s.url}>
-                <a
-                  href={s.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline underline-offset-2 hover:text-foreground"
-                >
-                  {s.title}
-                </a>{" "}
-                <span className="opacity-70">({s.source})</span>
+                {s.url.startsWith("bible://") ? (
+                  <><span className="font-medium text-foreground">{s.title}</span>{" "}                  <span className="opacity-70">({s.source}; fuente local)</span></>
+                ) : (
+                  <><a href={s.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">{s.title}</a>{" "}
+                  <span className="opacity-70">({s.source})</span></>
+                )}
               </li>
             ))}
           </ul>
@@ -190,3 +187,4 @@ function StatusBadge({ status }: { status: string }) {
     </span>
   );
 }
+

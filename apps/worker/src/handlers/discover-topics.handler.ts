@@ -3,6 +3,7 @@ import type { ProposedTopic, TopicResearchSource } from "@video-generator/ai-pro
 import { db, themes, topicProposals, videoMemory, videos } from "@video-generator/db";
 import { discoverTopicsPayloadSchema, type DiscoverTopicsPayload } from "@video-generator/queue";
 import { resolveSearchProvider, type SearchResult } from "@video-generator/search-providers";
+import { searchBible } from "@video-generator/bible-data";
 import { cosineDistance, desc, eq, inArray, sql } from "drizzle-orm";
 import { logger } from "../util/logger";
 
@@ -47,10 +48,11 @@ export async function handleDiscoverTopics(payload: DiscoverTopicsPayload): Prom
   // La busqueda no tumba la corrida si falla: el modelo puede proponer desde su propio conocimiento
   // y el prompt ya contempla `sources` vacio. Es peor quedarse sin ninguna propuesta que quedarse
   // sin fuentes, y la UI marca cuales no traen respaldo.
-  let sources: SearchResult[] = [];
+  let sources: SearchResult[] = isBiblicalTheme(theme.slug, theme.name) ? bibleSources(searchQuery) : [];
   try {
     const search = await resolveSearchProvider();
-    sources = await search.search({ query: searchQuery, limit: SEARCH_RESULTS, language: "es" });
+    const webSources = await search.search({ query: searchQuery, limit: SEARCH_RESULTS, language: "es" });
+    sources = [...sources, ...webSources];
     logger.info(`Busqueda de temas: ${sources.length} resultados de ${search.name}`, { query: searchQuery });
   } catch (err) {
     logger.warn("La busqueda web fallo; se propone sin fuentes", { error: (err as Error).message });
@@ -162,3 +164,21 @@ function isUsable(proposal: ProposedTopic): boolean {
     (proposal?.idea?.trim().length ?? 0) >= 40
   );
 }
+
+function isBiblicalTheme(slug: string, name: string): boolean {
+  return /biblia|biblic|cristian|evangel/.test(`${slug} ${name}`.toLowerCase());
+}
+
+function bibleSources(query: string): SearchResult[] {
+  const matches = searchBible(query, 8);
+  const passages = matches.length > 0 ? matches : searchBible("Dios fe esperanza pueblo promesa", 8);
+  return passages.map((passage) => ({
+    title: passage.reference,
+    url: `bible://rvr1909/${encodeURIComponent(passage.reference)}`,
+    snippet: passage.text,
+    source: "Biblia Reina-Valera 1909",
+  }));
+}
+
+
+

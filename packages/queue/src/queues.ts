@@ -39,6 +39,8 @@ export type PublishJobPayload = z.infer<typeof publishJobPayloadSchema>;
 /** videoId omitted means "poll all published videos" (used by the recurring cron schedule). */
 export const pollStatsPayloadSchema = z.object({
   videoId: z.string().uuid().optional(),
+  publishedVideoId: z.string().uuid().optional(),
+  syncRunId: z.string().uuid().optional(),
 });
 export type PollStatsPayload = z.infer<typeof pollStatsPayloadSchema>;
 
@@ -49,3 +51,6 @@ export const discoverTopicsPayloadSchema = z.object({
   query: z.string().optional(),
 });
 export type DiscoverTopicsPayload = z.infer<typeof discoverTopicsPayloadSchema>;
+
+
+
