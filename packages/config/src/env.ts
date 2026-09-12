@@ -64,6 +64,8 @@ const envSchema = z.object({
    */
   PLAYWRIGHT_BROWSER_CHANNEL: z.string().optional(),
   BRAVE_API_KEY: z.string().optional(),
+  /** Precio efectivo de una consulta del buscador, en USD. Cero para proveedores gratuitos/locales. */
+  SEARCH_COST_PER_QUERY_USD: z.coerce.number().nonnegative().default(0),
 
   YOUTUBE_CLIENT_ID: z.string().optional(),
   YOUTUBE_CLIENT_SECRET: z.string().optional(),

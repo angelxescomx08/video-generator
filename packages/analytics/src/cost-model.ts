@@ -29,6 +29,7 @@ export const UNIT_LABELS: Record<CostUnitKind, { singular: string; plural: strin
   tokens: { singular: "token", plural: "tokens", per: "por 1M tokens" },
   chars: { singular: "caracter", plural: "caracteres", per: "por 1M caracteres" },
   clips: { singular: "clip", plural: "clips", per: "por clip" },
+  searches: { singular: "consulta", plural: "consultas", per: "por consulta" },
   renders: { singular: "render", plural: "renders", per: "por render" },
 };
 
@@ -41,7 +42,7 @@ export const UNIT_LABELS: Record<CostUnitKind, { singular: string; plural: strin
  */
 export function effectiveUnitPrice(usd: number, units: number, unitKind: CostUnitKind | null): number | null {
   if (units <= 0) return null;
-  if (unitKind === "clips" || unitKind === "renders") return usd / units;
+  if (unitKind === "clips" || unitKind === "searches" || unitKind === "renders") return usd / units;
   return (usd / units) * 1_000_000;
 }
 

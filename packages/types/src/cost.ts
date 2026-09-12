@@ -1,13 +1,13 @@
-export const COST_STAGES = ["script", "tts", "stock_footage", "edl", "render"] as const;
+export const COST_STAGES = ["research", "script", "tts", "stock_footage", "edl", "render"] as const;
 export type CostStage = (typeof COST_STAGES)[number];
 
-export const PROVIDER_KINDS = ["ai", "tts", "stock", "render"] as const;
+export const PROVIDER_KINDS = ["ai", "tts", "stock", "search", "render"] as const;
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
 /** En que se mide el consumo de un proveedor. Es lo que hace comparable "caro" entre modelos: sin
  * esto solo se sabe cuanto se gasto, no si se gasto mucho porque el modelo es caro o porque el
  * guion era largo. */
-export const COST_UNIT_KINDS = ["tokens", "chars", "clips", "renders"] as const;
+export const COST_UNIT_KINDS = ["tokens", "chars", "clips", "searches", "renders"] as const;
 export type CostUnitKind = (typeof COST_UNIT_KINDS)[number];
 
 /** Lo que un proveedor (ai/tts/stock-providers) sabe calcular sobre su propia llamada — no conoce

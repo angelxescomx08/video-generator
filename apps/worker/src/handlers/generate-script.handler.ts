@@ -20,7 +20,7 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
 
   await runStage(videoId, STAGES.script!, async () => {
     const provider = await resolveProvider();
-    const { request, exploration, cost: memoryCost } = await buildScriptGenerationRequest(theme, video);
+    const { request, exploration, cost: memoryCost, researchCost } = await buildScriptGenerationRequest(theme, video);
     // Se guarda antes de generar: si el experimento es de pipeline, quien lo aplica es el stage del
     // EDL, y para entonces esta funcion ya no existe.
     await db.update(videos).set({ explorationPlan: exploration }).where(eq(videos.id, videoId));
@@ -79,7 +79,10 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
       metadata: { title: result.title, tags: result.tags },
     });
 
-    const costs: CostItem[] = [memoryCost, scriptCost, storeCost].map((c) => ({ ...c, stage: "script" }));
+    const costs: CostItem[] = [
+      ...(researchCost ? [researchCost] : []),
+      ...[memoryCost, scriptCost, storeCost].map((c) => ({ ...c, stage: "script" as const })),
+    ];
 
     logger.info(`Script generated for video ${videoId}`, { title: result.title });
     return { ...result, scenes, costs };

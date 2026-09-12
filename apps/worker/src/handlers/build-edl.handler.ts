@@ -9,6 +9,7 @@ import {
   deriveYoutubeAudioSuggestion,
   type EDLScene,
   type EditDecisionList,
+  type YoutubeAudioSuggestion,
 } from "@video-generator/types";
 import type { CostItem, MusicTrackRef, StockClipRef } from "@video-generator/types";
 import { eq } from "drizzle-orm";
@@ -131,21 +132,34 @@ async function findBackgroundMusic(
   aiSuggestedTags: string[],
   themeTags: string[],
   minDurationSeconds: number,
+  audioLibrary: YoutubeAudioSuggestion,
 ): Promise<{ track: MusicTrackRef; tags: string[] } | null> {
+  // Cada variante contiene UN genero y UN estado de animo. El provider recibe ambos como AND, por
+  // lo que una pista elegida aqui cumple los dos filtros, no solo uno de ellos.
+  const genreMoodVariants = audioLibrary.genres.flatMap((genre) =>
+    audioLibrary.moods.map((mood) => [musicSearchTag(genre), musicSearchTag(mood)]),
+  );
   const combinedVariants = [aiSuggestedTags, themeTags].filter((tags) => tags.length > 1);
   const individualTags = [...aiSuggestedTags, ...themeTags, ...GENERIC_MUSIC_TAGS].filter(
     (tag, i, arr) => tag && arr.indexOf(tag) === i,
   );
-  const tagVariants: string[][] = [...combinedVariants, ...individualTags.map((tag) => [tag])].filter(
-    (tags) => tags.length > 0,
-  );
+  // Si el catalogo no tiene una coincidencia genero+animo, no se cae a una cancion que contradiga
+  // la direccion musical del video. La musica es opcional; el criterio editorial no lo es.
+  const tagVariants: string[][] = genreMoodVariants.length > 0
+    ? genreMoodVariants
+    : [...combinedVariants, ...individualTags.map((tag) => [tag])].filter((tags) => tags.length > 0);
 
   for (const tags of tagVariants) {
     try {
       const results = await provider.search({ tags, minDurationSeconds, perPage: 5 });
       // Se devuelve junto con las tags que funcionaron: es lo que despues permite saber que tipo de
       // musica suena de verdad en el video (ver edl.audio.backgroundMusicTags).
-      if (results[0]) return { track: results[0], tags };
+      if (results.length > 0) {
+        // La consulta conserva todas sus tags (Jamendo las trata como AND). Cambiamos solo la
+        // eleccion entre coincidencias para no reutilizar siempre la pista mas popular.
+        const track = results[Math.floor(Math.random() * results.length)]!;
+        return { track, tags };
+      }
     } catch (err) {
       logger.warn(`Music search failed on ${provider.name} for tags "${tags.join(", ")}"`, {
         error: (err as Error).message,
@@ -153,6 +167,11 @@ async function findBackgroundMusic(
     }
   }
   return null;
+}
+
+/** Jamendo indexa sin puntuacion ni ampersands; conservar palabras separadas evita consultas rotas. */
+function musicSearchTag(value: string): string {
+  return value.replace(/&/g, "and").replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 /**
@@ -291,6 +310,7 @@ export async function handleBuildEdl(payload: VideoJobPayload): Promise<void> {
         edl.audio.musicSuggestionTags ?? [],
         theme?.defaultMusicTags ?? [],
         Math.min(edl.totalDurationSeconds, 60),
+        edl.audio.youtubeAudioLibrary,
       );
       if (found) {
         const { track, tags: matchedTags } = found;

@@ -5,6 +5,7 @@ import {
   computeWordBudget,
   resolveDurationBand,
   WORDS_PER_MINUTE,
+  type CostItem,
   type DurationBand,
   type ProviderCost,
 } from "@video-generator/types";
@@ -18,16 +19,22 @@ import {
   type PipelineExperimentPlan,
 } from "./exploration";
 import { logger } from "../util/logger";
+import { researchTopic } from "../research/topic-research";
 
 const REPEATABLE_FACT_TYPES = ["bible_verse_used", "quote_used", "title_used"] as const;
 
 export async function buildScriptGenerationRequest(
   theme: Theme,
   video: Video,
-): Promise<{ request: ScriptGenerationRequest; exploration: ExplorationChoice | null; cost: ProviderCost }> {
+): Promise<{
+  request: ScriptGenerationRequest;
+  exploration: ExplorationChoice | null;
+  cost: ProviderCost;
+  researchCost?: CostItem;
+}> {
   const queryText = `${theme.name} ${video.topic ?? ""}`.trim();
 
-  const [memory, avoidFacts, recentFeedback, learningsReport, playbookRules, regenerationInstruction] = await Promise.all([
+  const [memory, avoidFacts, recentFeedback, learningsReport, playbookRules, regenerationInstruction, topicResearch] = await Promise.all([
     retrieveMemoryContext(theme.id, queryText),
     getAvoidFacts(theme.id, [...REPEATABLE_FACT_TYPES]),
     getRecentFeedback(theme.id),
@@ -38,6 +45,7 @@ export async function buildScriptGenerationRequest(
     getLearningsReport(),
     getApplicablePlaybookRules({ themeId: theme.id, format: video.format, targetDurationSeconds: video.targetDurationSeconds ?? (video.format === "short" ? 60 : 300) }),
     resolveRegenerationInstruction(video.pendingFeedbackId),
+    researchTopic(theme.name, video.topic),
   ]);
 
   // Lo que el usuario escribio es el TECHO; el piso lo deriva el formato (ver `resolveDurationBand`).
@@ -63,6 +71,7 @@ export async function buildScriptGenerationRequest(
       format: video.format,
       maxDurationSeconds: band.maxSeconds,
       memoryContext: memory.items,
+      researchContext: topicResearch.sources,
       avoidFacts,
       recentFeedback,
       performanceLearnings: learningsReport.learnings,
@@ -81,6 +90,7 @@ export async function buildScriptGenerationRequest(
     // deciden aqui pero se aplican al montar el EDL, dos stages despues.
     exploration,
     cost: memory.cost,
+    researchCost: topicResearch.cost,
   };
 }
 

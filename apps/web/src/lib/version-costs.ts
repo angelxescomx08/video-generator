@@ -1,6 +1,7 @@
 import { COST_STAGES, type CostItem, type CostStage } from "@video-generator/types";
 
 export const STAGE_LABELS: Record<CostStage, string> = {
+  research: "Investigacion web",
   script: "Guion (IA)",
   tts: "Voz (TTS)",
   stock_footage: "Video (stock)",

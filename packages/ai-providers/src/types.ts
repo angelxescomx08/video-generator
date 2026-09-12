@@ -57,6 +57,8 @@ export interface ScriptGenerationRequest {
    */
   maxDurationSeconds: number;
   memoryContext: MemoryContextItem[];
+  /** Fuentes investigadas especificamente para esta idea antes de escribir el guion. */
+  researchContext?: TopicResearchSource[];
   avoidFacts: string[];
   recentFeedback: FeedbackSummary[];
   /** Patrones de rendimiento medidos en TODO el canal (ver PerformanceLearning). Opcional: llega
