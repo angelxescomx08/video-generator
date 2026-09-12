@@ -5,6 +5,14 @@ import { videos } from "./videos";
 export const TOPIC_PROPOSAL_STATUSES = ["pending", "approved", "rejected", "duplicate"] as const;
 export type TopicProposalStatus = (typeof TOPIC_PROPOSAL_STATUSES)[number];
 
+export type TopicResearchStatus = "idle" | "queued" | "researching" | "complete" | "failed";
+export interface TopicResearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+  source: string;
+}
+
 /**
  * Ideas de video que propuso el sistema despues de buscar en la web.
  *
@@ -47,6 +55,11 @@ export const topicProposals = pgTable(
     createdVideoId: uuid("created_video_id").references(() => videos.id),
     /** La consulta de busqueda que la origino, para poder reproducir de donde salio. */
     searchQuery: text("search_query"),
+    /** Fuentes reunidas a demanda al pulsar "Buscar mas informacion" en la idea. */
+    researchSources: jsonb("research_sources").$type<TopicResearchSource[]>(),
+    researchStatus: text("research_status").notNull().default("idle").$type<TopicResearchStatus>(),
+    /** Costo/consumo de la investigacion, que se transfiere al video cuando se aprueba la idea. */
+    researchCost: jsonb("research_cost"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

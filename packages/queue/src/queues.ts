@@ -21,6 +21,8 @@ export const QUEUES = {
   LABEL_DIMENSIONS: "label-dimensions",
   /** Busca en la web y propone temas de video nuevos para un tema del canal. */
   DISCOVER_TOPICS: "discover-topics",
+  /** Investiga fuentes adicionales para una propuesta puntual antes de aprobarla. */
+  RESEARCH_TOPIC: "research-topic",
 } as const;
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
@@ -51,6 +53,9 @@ export const discoverTopicsPayloadSchema = z.object({
   query: z.string().optional(),
 });
 export type DiscoverTopicsPayload = z.infer<typeof discoverTopicsPayloadSchema>;
+
+export const researchTopicPayloadSchema = z.object({ proposalId: z.string().uuid() });
+export type ResearchTopicPayload = z.infer<typeof researchTopicPayloadSchema>;
 
 
 

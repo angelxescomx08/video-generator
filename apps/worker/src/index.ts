@@ -10,6 +10,7 @@ import { handleLabelDimensions } from "./handlers/label-dimensions.handler";
 import { handlePollStats } from "./handlers/poll-stats.handler";
 import { handlePublishVideo } from "./handlers/publish-video.handler";
 import { handleRenderVideo } from "./handlers/render-video.handler";
+import { handleResearchTopic } from "./handlers/research-topic.handler";
 import { logger } from "./util/logger";
 
 /** pg-boss delivers jobs in batches (default size 1) — process each job's payload in turn. */
@@ -52,6 +53,7 @@ async function main() {
   // Mira hacia AFUERA (que contar) mientras DISCOVER_DIMENSIONS mira hacia adentro (que funciono).
   // Tambien manual: cada corrida gasta una busqueda web, una llamada al LLM y un embedding por idea.
   await boss.work(QUEUES.DISCOVER_TOPICS, perJob(handleDiscoverTopics));
+  await boss.work(QUEUES.RESEARCH_TOPIC, perJob(handleResearchTopic));
 
   // Recurring stats poll across all published videos, every 6 hours.
   await boss.schedule(QUEUES.POLL_STATS, "0 */6 * * *", {});

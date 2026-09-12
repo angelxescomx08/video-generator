@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { enqueueVideoGeneration } from "@/lib/queue";
+import { enqueueTopicResearch, enqueueVideoGeneration } from "@/lib/queue";
 import { topicProposals, videos } from "@video-generator/db";
 import { DURATION_LIMITS, sanitizePromptText } from "@video-generator/types";
 import { eq } from "drizzle-orm";
@@ -15,6 +15,14 @@ const actionSchema = z.object({
   /** Idea editada por el usuario antes de aprobar. Sin ella se usa la que propuso la IA. */
   idea: z.string().min(1).optional(),
 });
+
+/** Estado minimo para que la tarjeta pueda esperar al worker sin recargar toda la pagina a ciegas. */
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const proposal = await db.query.topicProposals.findFirst({ where: eq(topicProposals.id, id) });
+  if (!proposal) return NextResponse.json({ error: "Propuesta no encontrada" }, { status: 404 });
+  return NextResponse.json({ researchStatus: proposal.researchStatus });
+}
 
 /**
  * Aprueba o rechaza una propuesta. Aprobar CREA el video y lo encola.
@@ -60,6 +68,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       captionsEnabled: true,
       targetDurationSeconds: parsed.data.targetDurationSeconds ?? DURATION_LIMITS[format].default,
       status: "queued",
+      topicResearchSources: proposal.researchSources,
+      topicResearchCost: proposal.researchCost,
     })
     .returning();
 
@@ -70,4 +80,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   await enqueueVideoGeneration(video!.id);
   return NextResponse.json({ status: "approved", videoId: video!.id });
+}
+
+/** Encola investigacion complementaria para que la tarjeta muestre fuentes antes de aprobarla. */
+export async function PUT(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const proposal = await db.query.topicProposals.findFirst({ where: eq(topicProposals.id, id) });
+  if (!proposal) return NextResponse.json({ error: "Propuesta no encontrada" }, { status: 404 });
+  if (proposal.status !== "pending") {
+    return NextResponse.json({ error: "Solo se pueden investigar ideas pendientes" }, { status: 409 });
+  }
+  if (proposal.researchStatus === "queued" || proposal.researchStatus === "researching") {
+    return NextResponse.json({ queued: true });
+  }
+
+  await db
+    .update(topicProposals)
+    .set({ researchStatus: "queued", updatedAt: new Date() })
+    .where(eq(topicProposals.id, id));
+  await enqueueTopicResearch(id);
+  return NextResponse.json({ queued: true });
 }

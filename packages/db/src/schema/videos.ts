@@ -67,6 +67,12 @@ export const videos = pgTable(
      * pueden experimentar nunca: quedan clavadas en lo que diga la guia por defecto.
      */
     explorationPlan: jsonb("exploration_plan"),
+    /** Investigacion hecha desde la idea antes de crear el video; evita cobrarla dos veces al generar el guion. */
+    topicResearchSources: jsonb("topic_research_sources").$type<
+      Array<{ title: string; url: string; snippet: string; source: string }>
+    >(),
+    /** CostItem de la investigacion anterior a este video, para atribuirla a su primera version. */
+    topicResearchCost: jsonb("topic_research_cost"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

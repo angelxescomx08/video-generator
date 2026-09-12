@@ -20,6 +20,9 @@ export interface TopicProposalView {
   similarToVideoId: string | null;
   createdVideoId: string | null;
   searchQuery: string | null;
+  researchSources: Array<{ title: string; url: string; snippet: string; source: string }>;
+  researchStatus: "idle" | "queued" | "researching" | "complete" | "failed";
+  researchCostUsd: number;
 }
 
 /**
@@ -37,6 +40,9 @@ export function TopicProposalCard({ proposal }: { proposal: TopicProposalView })
   const [format, setFormat] = useState<"long" | "short">("short");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [researching, setResearching] = useState(
+    proposal.researchStatus === "queued" || proposal.researchStatus === "researching",
+  );
 
   const decided = proposal.status === "approved" || proposal.status === "rejected";
 
@@ -57,6 +63,31 @@ export function TopicProposalCard({ proposal }: { proposal: TopicProposalView })
       setError(err instanceof Error ? err.message : "Error desconocido");
       setBusy(false);
     }
+  }
+
+  async function research() {
+    setResearching(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/topics/${proposal.id}`, { method: "PUT" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "No se pudo iniciar la investigacion");
+      void pollResearch();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+      setResearching(false);
+    }
+  }
+
+  async function pollResearch() {
+    const response = await fetch(`/api/topics/${proposal.id}`, { cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && (data.researchStatus === "queued" || data.researchStatus === "researching")) {
+      window.setTimeout(() => void pollResearch(), 1200);
+      return;
+    }
+    setResearching(false);
+    router.refresh();
   }
 
   return (
@@ -95,6 +126,44 @@ export function TopicProposalCard({ proposal }: { proposal: TopicProposalView })
           Verificalo antes de aprobarlo.
         </p>
       )}
+
+      <div className="rounded-md border border-border bg-muted/30 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-medium">Material para nutrir el guion</p>
+            <p className="text-xs text-muted-foreground">
+              Busca pasajes, contexto y perspectivas de teologos/comentaristas antes de crear el video.
+            </p>
+          </div>
+          <Button type="button" size="sm" variant="outline" disabled={decided || researching} onClick={research}>
+            {researching ? "Buscando..." : proposal.researchSources.length > 0 ? "Buscar de nuevo" : "Buscar mas informacion"}
+          </Button>
+        </div>
+        {proposal.researchStatus === "failed" && (
+          <p className="mt-2 text-xs text-destructive">La busqueda fallo. Puedes intentarlo de nuevo.</p>
+        )}
+        {proposal.researchSources.length > 0 && (
+          <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+            {proposal.researchSources.map((source) => (
+              <li key={source.url}>
+                {source.url.startsWith("bible://") ? (
+                  <span><span className="font-medium text-foreground">{source.title}</span> — {source.snippet}</span>
+                ) : (
+                  <a href={source.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">
+                    {source.title}
+                  </a>
+                )}
+                <span className="opacity-70"> ({source.source})</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {proposal.researchStatus === "complete" && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {proposal.researchCostUsd > 0 ? `Costo de esta investigacion: US$${proposal.researchCostUsd.toFixed(4)}.` : "Investigacion registrada como gratuita."}
+          </p>
+        )}
+      </div>
 
       {proposal.similarToVideoId && (
         <p className="text-xs text-muted-foreground">

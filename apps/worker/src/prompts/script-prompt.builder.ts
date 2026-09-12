@@ -45,7 +45,12 @@ export async function buildScriptGenerationRequest(
     getLearningsReport(),
     getApplicablePlaybookRules({ themeId: theme.id, format: video.format, targetDurationSeconds: video.targetDurationSeconds ?? (video.format === "short" ? 60 : 300) }),
     resolveRegenerationInstruction(video.pendingFeedbackId),
-    researchTopic(theme.name, video.topic),
+    video.topicResearchSources
+      ? Promise.resolve({
+          sources: video.topicResearchSources,
+          cost: video.topicResearchCost as CostItem | undefined,
+        })
+      : researchTopic(theme.name, video.topic),
   ]);
 
   // Lo que el usuario escribio es el TECHO; el piso lo deriva el formato (ver `resolveDurationBand`).

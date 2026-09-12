@@ -80,14 +80,14 @@ export function VideoMusicPanel({
     ...tracks,
   ];
 
-  // Canciones cuyo genero o animo coincide con lo que la IA sugirio para este video: atajo util
-  // cuando la biblioteca ya tiene muchas pistas.
+  // La candidata aleatoria debe cumplir ambos filtros a la vez: por ejemplo, no basta una pista
+  // cinematografica si no es dramatica. Asi la eleccion aleatoria conserva la direccion musical.
   const suggestedIds = new Set(
     suggestion
       ? allTracks
           .filter(
             (t) =>
-              t.genres.some((g) => suggestion.genres.includes(g as YoutubeAudioGenre)) ||
+              t.genres.some((g) => suggestion.genres.includes(g as YoutubeAudioGenre)) &&
               t.moods.some((m) => suggestion.moods.includes(m as YoutubeAudioMood)),
           )
           .map((t) => t.id)
@@ -106,6 +106,12 @@ export function VideoMusicPanel({
   const suggestionLabels = suggestion ? toSpanish(suggestion.genres, suggestion.moods) : [];
 
   const unchanged = selected === (currentTrackId ?? NO_MUSIC);
+
+  function chooseRandomSuggestedTrack() {
+    const candidates = allTracks.filter((track) => suggestedIds.has(track.id));
+    if (candidates.length === 0) return;
+    setSelected(candidates[Math.floor(Math.random() * candidates.length)]!.id);
+  }
 
   async function onApply() {
     setSubmitting(true);
@@ -222,10 +228,20 @@ export function VideoMusicPanel({
                       Ver solo las que encajan ({suggestedIds.size})
                     </span>
                   </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-2"
+                    disabled={suggestedIds.size === 0 || disabled || submitting}
+                    onClick={chooseRandomSuggestedTrack}
+                  >
+                    Elegir una aleatoria que encaje
+                  </Button>
                   {suggestedIds.size === 0 && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Ninguna cancion de tu biblioteca tiene ese genero o animo. Etiquetalas al subirlas
-                      para poder filtrar aqui.
+                      Ninguna cancion de tu biblioteca cumple a la vez ese genero y estado de animo.
+                      Etiquetalas al subirlas para poder elegir una aleatoria aqui.
                     </p>
                   )}
                 </div>

@@ -84,6 +84,12 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
       ...[memoryCost, scriptCost, storeCost].map((c) => ({ ...c, stage: "script" as const })),
     ];
 
+    // La investigacion hecha desde la tarjeta pertenece solo a la primera version que nace de la
+    // idea. Al limpiarla no se vuelve a sumar si el usuario regenera por feedback mas adelante.
+    if (researchCost && video.topicResearchCost) {
+      await db.update(videos).set({ topicResearchCost: null }).where(eq(videos.id, videoId));
+    }
+
     logger.info(`Script generated for video ${videoId}`, { title: result.title });
     return { ...result, scenes, costs };
   });

@@ -316,6 +316,7 @@ Propon hasta ${req.maxProposals} ideas de video. Cada una debe cumplir TODO esto
 - Apoyarse en lo que dicen las fuentes de arriba, no en algo que te suene. Cita en sourceUrls las URLs concretas que la sostienen.
 - Ser un tema CONCRETO, no una categoria. "El dia que Pedro nego a Jesus tres veces" sirve; "historias del Nuevo Testamento" no.
 - Traer un angulo que la gente no conozca ya: un detalle sorprendente, una contradiccion, un dato historico o arqueologico, algo que rete lo que se suele creer. Si la idea es la version de siempre de una historia conocida, no la propongas.
+- Si las fuentes incluyen Biblia, comentario o teologia, conecta un pasaje concreto con una interpretacion o contexto historico atribuido. No devuelvas solo la trama conocida del pasaje: la idea debe explicar la tension, debate u opinion que la vuelve interesante.
 - Ser distinta de los videos ya hechos y distinta de las otras propuestas de esta misma respuesta.
 - "idea": 3-5 frases con la historia y el material concreto (nombres, cifras, lugares, versiculos si aplica) que usaria el guionista. Es lo que se le va a pasar tal cual para escribir el guion, asi que tiene que bastarse solo.
 - "angle": UNA frase diciendo por que alguien se quedaria a verlo.

@@ -51,9 +51,12 @@ export async function handleDiscoverTopics(payload: DiscoverTopicsPayload): Prom
   let sources: SearchResult[] = isBiblicalTheme(theme.slug, theme.name) ? bibleSources(searchQuery) : [];
   try {
     const search = await resolveSearchProvider();
-    const webSources = await search.search({ query: searchQuery, limit: SEARCH_RESULTS, language: "es" });
-    sources = [...sources, ...webSources];
-    logger.info(`Busqueda de temas: ${sources.length} resultados de ${search.name}`, { query: searchQuery });
+    const queries = discoveryQueriesFor(theme.slug, theme.name, searchQuery);
+    const resultSets = await Promise.all(
+      queries.map((query) => search.search({ query, limit: Math.ceil(SEARCH_RESULTS / queries.length), language: "es" })),
+    );
+    sources = [...sources, ...resultSets.flat()];
+    logger.info(`Busqueda de temas: ${sources.length} resultados de ${search.name}`, { queries });
   } catch (err) {
     logger.warn("La busqueda web fallo; se propone sin fuentes", { error: (err as Error).message });
   }
@@ -150,6 +153,17 @@ async function findMostSimilarScript(
  */
 function defaultQueryFor(themeName: string): string {
   return `${themeName} datos poco conocidos hallazgos historicos sorprendentes`;
+}
+
+/** Una sola consulta de "datos sorprendentes" tendia a reciclar los mismos resultados generales.
+ * Para temas biblicos se abre el abanico entre texto, comentario y contexto antes de pedir ideas. */
+function discoveryQueriesFor(themeSlug: string, themeName: string, baseQuery: string): string[] {
+  if (!isBiblicalTheme(themeSlug, themeName)) return [baseQuery];
+  return [
+    baseQuery,
+    `${themeName} versiculos poco conocidos contexto biblico`,
+    `${themeName} interpretaciones de teologos comentaristas hallazgos historicos`,
+  ];
 }
 
 function toResearchSource(result: SearchResult): TopicResearchSource {

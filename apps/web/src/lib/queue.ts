@@ -64,6 +64,12 @@ export async function enqueueTopicDiscovery(themeId: string, query?: string): Pr
   await boss.send(QUEUES.DISCOVER_TOPICS, { themeId, query });
 }
 
+/** Investiga una propuesta sin bloquear el request: el worker consulta fuentes y actualiza la tarjeta. */
+export async function enqueueTopicResearch(proposalId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send(QUEUES.RESEARCH_TOPIC, { proposalId });
+}
+
 /** Enqueues one independently observable poll per linked video for a durable progress bar. */
 export async function enqueueStatsSyncRun(syncRunId: string, publishedVideoIds: string[]): Promise<void> {
   const boss = await getBoss();
