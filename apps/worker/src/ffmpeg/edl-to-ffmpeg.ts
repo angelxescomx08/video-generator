@@ -81,7 +81,10 @@ export function buildFfmpegArgs(edl: EditDecisionList, options: FfmpegBuildOptio
         ? `trim=duration=${sceneDuration},setpts=PTS-STARTPTS,`
         : "";
     filterParts.push(
-      `[${i}:v]${trimPart}scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=${FPS}[${preLabel}]`,
+      // `concat` requires every segment to have identical stream parameters, including sample
+      // aspect ratio. Stock footage can report a near-1:1 SAR (for example 3840:3841) even after
+      // it has been scaled and cropped to our fixed canvas, so normalize it explicitly.
+      `[${i}:v]${trimPart}scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=${FPS},setsar=1[${preLabel}]`,
     );
 
     const outLabel = `v${i}`;
