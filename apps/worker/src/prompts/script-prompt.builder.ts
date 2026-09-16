@@ -200,7 +200,8 @@ const SCRIPT_TONE_GUIDE = `TONO Y ESTILO (obligatorio):
 - Estructura la historia para retener: abre un loop (una pregunta o cliffhanger sin resolver) al inicio y cierralo al final. Usa logica de "pero / por lo tanto" (causa-efecto), no "y luego... y luego". Sube las apuestas por etapas y mete un giro o cambio de ritmo cada 45-90 segundos. Genera tension antes de cada payoff.
 - Cuenta una historia COMPLETA (planteamiento, desarrollo con obstaculos, climax y resolucion) dentro del rango de duracion que se te da mas abajo. No estires 30 segundos de contenido para llenar tiempo ni rellenes: si la historia cierra bien antes del maximo, cierrala ahi. Revela el contexto sobre la marcha, con accion, no en un bloque de exposicion inicial.
 - Elimina relleno y muletillas ("ademas", "cabe destacar", "en conclusion", "es importante notar"). Cada frase debe avanzar la historia.
-- Cierra pagando la promesa del gancho y termina con un solo CTA claro y natural, ligado al valor que acabas de entregar.`;
+- Cierra pagando la promesa del gancho y termina con un solo CTA claro y natural, ligado al valor que acabas de entregar.
+- PRONUNCIACION DE CITAS BIBLICAS: nunca escribas una referencia con dos puntos ni en formato numerico, porque el TTS la interpreta como una hora. Escribe siempre las palabras completas: "Juan, capitulo 3, versiculo 16"; para un rango, "Juan, capitulo 3, versiculos 16 al 18". Esta regla aplica a narrationText y al campo script.`;
 
 async function resolveRegenerationInstruction(pendingFeedbackId: string | null): Promise<string | undefined> {
   if (!pendingFeedbackId) return undefined;

@@ -7,6 +7,7 @@ import { storeMemory } from "../memory/embed";
 import { runStage, setVideoStatus } from "../pipeline/orchestrator";
 import { STAGES } from "../pipeline/stage-context";
 import { clampScenesToWordBudget } from "../prompts/clamp-scenes-duration";
+import { normalizeBiblicalReferencesForSpeech } from "../prompts/normalize-biblical-references";
 import { buildScriptGenerationRequest } from "../prompts/script-prompt.builder";
 import { logger } from "../util/logger";
 
@@ -26,11 +27,22 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
     await db.update(videos).set({ explorationPlan: exploration }).where(eq(videos.id, videoId));
     const { result, cost: scriptCost } = await provider.generateScript(request);
 
+    // Las referencias como "Juan 3:16" hacen que algunos motores TTS digan una hora. El prompt
+    // las pide en palabras y esta conversion cubre los casos en que el modelo no obedeció.
+    const script = normalizeBiblicalReferencesForSpeech(result.script);
+    const speechSafeScenes = result.scenes.map((scene) => ({
+      ...scene,
+      narrationText: normalizeBiblicalReferencesForSpeech(scene.narrationText),
+    }));
+    if (script !== result.script || speechSafeScenes.some((scene, index) => scene.narrationText !== result.scenes[index]?.narrationText)) {
+      logger.info(`Referencias biblicas normalizadas para TTS en video ${videoId}`);
+    }
+
     // Red de seguridad sin costo de tokens extra: si el LLM ignoro el limite de palabras del
     // prompt, recorta las escenas aqui mismo en vez de pedirle al LLM que lo intente de nuevo.
     const { maxWords } = computeWordBudget(resolveDurationBand(video.format, video.targetDurationSeconds));
-    const scenes = clampScenesToWordBudget(result.scenes, maxWords);
-    if (scenes !== result.scenes) {
+    const scenes = clampScenesToWordBudget(speechSafeScenes, maxWords);
+    if (scenes !== speechSafeScenes) {
       logger.warn(`Guion recortado por exceder el presupuesto de palabras para video ${videoId}`, {
         maxWords,
         originalScenes: result.scenes.length,
@@ -42,7 +54,7 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
       .set({
         title: result.title,
         description: result.description,
-        script: result.script,
+        script,
         scenes,
         tags: result.tags,
         updatedAt: new Date(),
@@ -75,7 +87,7 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
       themeId: theme.id,
       videoId,
       contentType: "script",
-      content: result.script,
+      content: script,
       metadata: { title: result.title, tags: result.tags },
     });
 
@@ -91,7 +103,7 @@ export async function handleGenerateScript(payload: VideoJobPayload): Promise<vo
     }
 
     logger.info(`Script generated for video ${videoId}`, { title: result.title });
-    return { ...result, scenes, costs };
+    return { ...result, script, scenes, costs };
   });
 
   await setVideoStatus(videoId, "generating_tts");
